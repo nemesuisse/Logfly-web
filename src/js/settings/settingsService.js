@@ -74,6 +74,8 @@ export const availableMapLayers = [
     'Mtk',
     'Esri Topo',
     'Outdoor',
+    'Swisstopo',
+    'Swissimage',
 ];
 
 /**
