@@ -23,12 +23,7 @@
     <div class="panels-grid">
       <v-card v-for="panel in panels" :key="panel.key" class="record-panel" elevation="2">
         <div class="panel-title" :style="{ background: `linear-gradient(135deg, ${panel.colors[0]} 0%, ${panel.colors[1]} 100%)` }">
-          <svg v-if="panel.course" class="panel-icon" width="72" height="72" viewBox="0 0 24 24" fill="white"
-            stroke="white" stroke-width="1.4" stroke-linejoin="round">
-            <polyline v-if="panel.course === 'od'" :points="iconPoints(panel.course)" fill="none" />
-            <polygon v-else :points="iconPoints(panel.course)" fill="none" />
-            <circle v-for="(p, i) in courseIcons[panel.course]" :key="i" :cx="p[0]" :cy="p[1]" r="2.2" stroke="none" />
-          </svg>
+          <CourseIcon v-if="panel.course" class="panel-icon" :course="panel.course" :size="72" color="white" />
           <v-icon v-else class="panel-icon" size="72" color="white">{{ panel.icon }}</v-icon>
           <span>{{ panel.title }}</span>
           <v-menu v-if="panel.key === 'speed'">
@@ -52,6 +47,8 @@
                 <span v-else class="rank-number">{{ index + 1 }}</span>
               </td>
               <td class="value-cell">
+                <CourseIcon v-if="rowCourse(row)" class="row-course-icon" :course="rowCourse(row)" :size="34"
+                  :title="courseLabels[rowCourse(row)]" />
                 <div class="record-value">{{ row.value }}</div>
                 <div v-if="row.extra" class="record-extra">{{ row.extra }}</div>
               </td>
@@ -70,6 +67,13 @@
         </div>
       </v-card>
     </div>
+    <!-- Flight full map, opened from a row -->
+    <v-dialog v-model="showFullMap" fullscreen persistent transition="dialog-bottom-transition">
+      <FullMapView v-if="fullMapFlight" :flightData="fullMapFlight" @close="onFullMapClose" />
+    </v-dialog>
+    <v-overlay :model-value="loadingFlight" class="align-center justify-center" persistent>
+      <v-progress-circular indeterminate size="56" color="white" />
+    </v-overlay>
   </v-card>
   <!-- No database message -->
   <v-card v-else flat class="records-card d-flex align-center justify-center">
@@ -85,7 +89,11 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useGettext } from "vue3-gettext";
 import { useRouter } from 'vue-router';
 import OpenLogbook from '@/components/OpenLogbook.vue';
+import FullMapView from '@/components/FullMapView.vue';
+import CourseIcon from '@/modules/Stat/components/CourseIcon.vue';
 import { useDatabaseStore } from '@/stores/database';
+import { igcDecoding } from '@/js/igc/igc-decoder.js';
+import { IgcAnalyze } from '@/js/igc/igc-analyzer.js';
 import {
   ensurePerfTable, getRecordsLeague, getFlightsToCompute, computeFlightPerf, perfKey
 } from '@/modules/Stat/js/flight-perf.js';
@@ -125,16 +133,13 @@ const courseLabels = computed(() => ({
   fai: $gettext('FAI triangle')
 }));
 
-// Turnpoints of the course icons (24x24 viewBox)
-const courseIcons = {
-  fai: [[12, 3.5], [3, 19.5], [21, 19.5]],
-  tri: [[14, 6.5], [2.5, 18.5], [21.5, 16.5]],
-  od: [[3, 19], [8, 6], [15, 15], [21, 4]]
-};
+// Best scoring course of each analyzed flight: { V_ID: 'od' | 'tri' | 'fai' }
+const bestCourseById = ref({});
 
-function iconPoints(course) {
-  return courseIcons[course].map(p => p.join(',')).join(' ');
-}
+// Full map of a flight opened from a row
+const showFullMap = ref(false);
+const fullMapFlight = ref(null);
+const loadingFlight = ref(false);
 
 const panels = computed(() => [
   { key: 'best', title: $gettext('Best scores'), icon: 'mdi-trophy-outline', colors: ['#FF9800', '#EF6C00'], rows: records.value.best, needsTracks: true },
@@ -178,8 +183,65 @@ function flightLink(flightId) {
   return { name: 'logbook-view', query: { flight: flightId } };
 }
 
+function rowFlightId(row) {
+  return row.link.name === 'logbook-view' ? row.link.query.flight : null;
+}
+
+function rowCourse(row) {
+  const flightId = rowFlightId(row);
+  return flightId ? bestCourseById.value[flightId] : null;
+}
+
 function openRow(row) {
-  router.push(row.link);
+  const flightId = rowFlightId(row);
+  if (flightId) {
+    openFlightFullMap(flightId);
+  } else {
+    router.push(row.link);
+  }
+}
+
+/**
+ * Open the full map of a flight, as in the logbook.
+ * Flights without a track open in the logbook instead.
+ */
+async function openFlightFullMap(flightId) {
+  const res = rows(`SELECT V_IGC, strftime('%d-%m-%Y', V_Date), V_Site, V_Engin, V_Commentaire, V_sDuree
+    FROM Vol WHERE V_ID = ${flightId}`);
+  const [strIgc, day, site, glider, comment, duration] = res[0] || [];
+  if (!strIgc || strIgc.trim() === '') {
+    router.push(flightLink(flightId));
+    return;
+  }
+  loadingFlight.value = true;
+  try {
+    const decodedIgc = await igcDecoding(strIgc);
+    if (!decodedIgc.success) {
+      router.push(flightLink(flightId));
+      return;
+    }
+    const analyzeIgc = await IgcAnalyze(decodedIgc.data.fixes);
+    fullMapFlight.value = {
+      dbId: flightId,
+      day, site, glider, comment, duration,
+      anaTrack: analyzeIgc.success ? analyzeIgc.anaTrack : null,
+      decodedIgc: decodedIgc.data,
+      rawIgc: strIgc,
+      hikeData: null
+    };
+    showFullMap.value = true;
+  } finally {
+    loadingFlight.value = false;
+  }
+}
+
+function onFullMapClose() {
+  showFullMap.value = false;
+  fullMapFlight.value = null;
+  // The track may have been cut in the full map
+  loadSqlRecords();
+  loadPerfRecords();
+  computeMissing();
 }
 
 function formatDuration(seconds) {
@@ -271,7 +333,7 @@ function loadPerfRecords() {
   const perfRows = rows(`SELECT V_ID, V_Date, V_Site, V_Duree, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts
     FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${perfKey(league.value)}'`)
     .map(([id, date, site, duree, odKm, odPts, triKm, triPts, faiKm, faiPts]) => ({
-      date: formatDate(date), site, duree, link: flightLink(id),
+      id, date: formatDate(date), site, duree, link: flightLink(id),
       od: odPts ? { km: odKm, pts: odPts } : null,
       tri: triPts ? { km: triKm, pts: triPts } : null,
       fai: faiPts ? { km: faiKm, pts: faiPts } : null
@@ -296,6 +358,7 @@ function loadPerfRecords() {
       return bestCode ? { ...r, bestCode, best: r[bestCode] } : null;
     })
     .filter(r => r);
+  bestCourseById.value = Object.fromEntries(bestRows.map(r => [r.id, r.bestCode]));
 
   // Average speed: distance of the best scoring course over the flight duration
   records.value.speed = bestRows
@@ -449,6 +512,20 @@ function recomputeAll() {
 
 .record-row {
   cursor: pointer;
+}
+
+.value-cell {
+  position: relative;
+  padding-right: 44px !important;
+}
+
+.row-course-icon {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9e9e9e;
+  opacity: 0.45;
 }
 
 .rank-cell {
