@@ -13,7 +13,7 @@
         </span>
         <v-progress-linear :model-value="progressPercent" color="primary" height="6" rounded />
       </div>
-      <v-btn v-else size="small" variant="text" prepend-icon="mdi-refresh" @click="recomputeAll"
+      <v-btn v-else size="small" variant="text" prepend-icon="mdi-refresh" @click="askRecompute"
         :title="$gettext('Recompute altitudes and scores of all tracks')">
         {{ $gettext('Recompute') }}
       </v-btn>
@@ -66,6 +66,33 @@
         </div>
       </v-card>
     </div>
+    <!-- Recompute confirmation -->
+    <v-dialog v-model="showRecomputeDialog" max-width="480">
+      <v-card>
+        <v-card-title class="d-flex align-center ga-2 text-wrap">
+          <v-icon color="warning">mdi-refresh</v-icon>
+          {{ $gettext('Recompute all records?') }}
+        </v-card-title>
+        <v-card-text>
+          <p>
+            {{ $gettext('Every track of the logbook will be analyzed again. This can take several minutes depending on the size of the logbook, about 30 minutes for 1000 flights.') }}
+          </p>
+          <p class="mt-3">
+            <b>{{ recomputeInfo.tracks }}</b> {{ $gettext('tracks to analyze') }},
+            {{ $gettext('estimated duration') }} : <b>{{ recomputeInfo.duration }}</b>.
+          </p>
+          <p class="mt-3 text-medium-emphasis">
+            {{ $gettext('Keep this page open: the panels fill in as the analysis progresses, and it resumes where it stopped if you leave.') }}
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showRecomputeDialog = false">{{ $gettext('Cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" @click="recomputeAll">{{ $gettext('Recompute') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Flight full map, opened from a row -->
     <v-dialog v-model="showFullMap" fullscreen persistent transition="dialog-bottom-transition">
       <FullMapView v-if="fullMapFlight" :flightData="fullMapFlight" @close="onFullMapClose" />
@@ -414,7 +441,24 @@ async function computeMissing() {
   }
 }
 
+// Rough average analysis time of a track (s), used for the recompute estimate
+const SECONDS_PER_TRACK = 2;
+
+const showRecomputeDialog = ref(false);
+const recomputeInfo = ref({ tracks: 0, duration: '' });
+
+function askRecompute() {
+  const tracks = rows(`SELECT COUNT(*) FROM Vol WHERE V_IGC IS NOT NULL AND V_IGC != ''`)[0]?.[0] || 0;
+  const minutes = Math.max(1, Math.round(tracks * SECONDS_PER_TRACK / 60));
+  recomputeInfo.value = {
+    tracks,
+    duration: minutes < 60 ? `~${minutes} min` : `~${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}`
+  };
+  showRecomputeDialog.value = true;
+}
+
 function recomputeAll() {
+  showRecomputeDialog.value = false;
   databaseStore.query('DELETE FROM Perf');
   databaseStore.markAsDirty();
   loadPerfRecords();
@@ -517,7 +561,8 @@ function recomputeAll() {
 /* Course icon as a watermark at the left of the row, behind the medal */
 .row-course-icon {
   position: absolute;
-  left: 50%;
+  /* Centered between the medal and the flight text */
+  left: calc(50% + 22px);
   top: 50%;
   transform: translate(-50%, -50%);
   color: #9e9e9e;
@@ -525,7 +570,8 @@ function recomputeAll() {
   pointer-events: none;
 }
 
-.rank-cell > :not(.row-course-icon) {
+.rank-cell > :not(.row-course-icon),
+.value-cell > div {
   position: relative;
 }
 
