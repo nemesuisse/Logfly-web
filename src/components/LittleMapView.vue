@@ -45,7 +45,7 @@ import { useGettext } from "vue3-gettext";
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { createBaseMaps, getDefaultLayerName, createKk7 } from '@/js/leaflet/tiles.js';
-import { startIcon, endIcon, createPopThermal, thermalIcon, bestThermalIcon } from '@/js/leaflet/map-utils.js';
+import { startIcon, endIcon } from '@/js/leaflet/map-utils.js';
 
 // Import site type icons
 import windsockIconUrl from '@/assets/windsock22.png';
@@ -112,10 +112,6 @@ const props = defineProps({
   showSkyways: {
     type: Boolean,
     default: false
-  },
-  geoThermals: {
-    type: Object,
-    default: null
   }
 });
 
@@ -129,7 +125,6 @@ let startMarker = null;
 let endMarker = null;
 let resizeObserver = null;
 let layerControl = null;
-let thermalLayer = null;
 
 onMounted(() => {
   // Initialiser la carte Leaflet — zoom control to top-right to avoid drawer overlap
@@ -178,53 +173,7 @@ onMounted(() => {
   if (props.scoreJson) {
     displayScoreJson(props.scoreJson);
   }
-
-  // Thermals overlay, same as the full map
-  displayThermals(props.geoThermals);
 });
-
-// Watch pour les thermiques
-watch(() => props.geoThermals, (newGeoThermals) => {
-  if (map) {
-    displayThermals(newGeoThermals);
-  }
-});
-
-function displayThermals(geoThermals) {
-  if (thermalLayer) {
-    map.removeLayer(thermalLayer);
-    layerControl.removeLayer(thermalLayer);
-    thermalLayer = null;
-  }
-
-  if (!geoThermals) return;
-
-  // Find the best thermal (max alt_gain) to give it a distinct icon
-  const points = geoThermals.features ? geoThermals.features.filter(f => f.geometry.type === 'Point') : [];
-  const maxAltGain = points.reduce((max, f) => Math.max(max, Number(f.properties.alt_gain) || 0), 0);
-
-  thermalLayer = L.geoJSON(geoThermals, {
-    style: (feature) => {
-      return {
-        color: '#ff6600',
-        weight: 4,
-        opacity: 1,
-        interactive: feature.geometry.type !== 'LineString'
-      };
-    },
-    pointToLayer: (feature, latlng) => {
-      const isBest = maxAltGain > 0 && Number(feature.properties.alt_gain) === maxAltGain;
-      return L.marker(latlng, { icon: isBest ? bestThermalIcon : thermalIcon });
-    },
-    onEachFeature: (feature, layer) => {
-      if (feature.geometry.type === 'Point') {
-        createPopThermal(feature, layer, $gettext);
-      }
-    }
-  });
-
-  layerControl.addOverlay(thermalLayer, $gettext('Thermals'));
-}
 
 // Watch pour la trace du vol
 watch(() => props.geoJson, (newGeoJson) => {
