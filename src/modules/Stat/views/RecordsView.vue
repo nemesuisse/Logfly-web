@@ -6,6 +6,8 @@
       <v-icon size="28" color="primary">mdi-trophy</v-icon>
       <span class="text-h6">{{ $gettext('Records') }}</span>
       <v-chip size="small" color="primary" variant="tonal">{{ $gettext('Scoring') }} {{ league }}</v-chip>
+      <v-select v-model="yearFilter" :items="yearItems" density="compact" variant="outlined" hide-details
+        class="year-select" prepend-inner-icon="mdi-calendar" @update:model-value="loadAll" />
       <v-spacer />
       <div v-if="computing" class="progress-box">
         <span class="text-caption">
@@ -144,6 +146,30 @@ const records = ref({
 const speedMinKm = ref(30);
 const speedMinKmItems = [30, 50, 100, 200];
 
+// Global year filter (null = all years)
+const yearFilter = ref(null);
+const yearList = ref([]);
+const yearItems = computed(() => [
+  { title: $gettext('All years'), value: null },
+  ...yearList.value.map(y => ({ title: y, value: y }))
+]);
+
+// SQL condition restricting Vol rows to the selected year
+function yearCond(table = 'Vol') {
+  return yearFilter.value ? ` AND strftime('%Y', ${table}.V_Date) = '${yearFilter.value}'` : '';
+}
+
+function loadYears() {
+  yearList.value = rows(`SELECT DISTINCT strftime('%Y', V_Date) AS Y FROM Vol
+    WHERE V_Date IS NOT NULL ORDER BY Y DESC`).map(([y]) => y).filter(y => y);
+  if (yearFilter.value && !yearList.value.includes(yearFilter.value)) yearFilter.value = null;
+}
+
+function loadAll() {
+  loadSqlRecords();
+  loadPerfRecords();
+}
+
 function setSpeedMinKm(km) {
   speedMinKm.value = km;
   loadPerfRecords();
@@ -194,8 +220,8 @@ onBeforeUnmount(() => {
 function init() {
   league.value = getRecordsLeague();
   ensurePerfTable(databaseStore);
-  loadSqlRecords();
-  loadPerfRecords();
+  loadYears();
+  loadAll();
   computeMissing();
 }
 
@@ -297,13 +323,13 @@ function formatPts(pts) {
  */
 function loadSqlRecords() {
   records.value.longest = rows(`SELECT V_ID, V_Duree, V_Date, V_Site, V_Engin FROM Vol
-    WHERE V_Duree > 0 ORDER BY V_Duree DESC LIMIT ${TOP}`)
+    WHERE V_Duree > 0${yearCond()} ORDER BY V_Duree DESC LIMIT ${TOP}`)
     .map(([id, duree, date, site, glider]) => ({
       value: formatDuration(duree), extra: glider, date: formatDate(date), site, link: flightLink(id)
     }));
 
   records.value.sites = rows(`SELECT V_Site, COUNT(*) AS Nb, SUM(V_Duree) AS Total, MAX(V_Date) FROM Vol
-    WHERE V_Site IS NOT NULL AND V_Site != '' GROUP BY V_Site ORDER BY Nb DESC, Total DESC LIMIT ${TOP}`)
+    WHERE V_Site IS NOT NULL AND V_Site != ''${yearCond()} GROUP BY V_Site ORDER BY Nb DESC, Total DESC LIMIT ${TOP}`)
     .map(([site, nb, total, last]) => ({
       value: site, extra: `${nb} ${$gettext('flights')} · ${formatDuration(total)}`,
       date: formatDate(last), site: $gettext('Last flight'),
@@ -312,7 +338,7 @@ function loadSqlRecords() {
 
   records.value.streaks = computeStreaks(rows(`SELECT date(V_Date) AS Day, COUNT(*),
     (SELECT V_ID FROM Vol AS First WHERE date(First.V_Date) = date(Vol.V_Date) ORDER BY First.V_Date LIMIT 1)
-    FROM Vol WHERE V_Date IS NOT NULL GROUP BY Day ORDER BY Day`));
+    FROM Vol WHERE V_Date IS NOT NULL${yearCond()} GROUP BY Day ORDER BY Day`));
 }
 
 /**
@@ -353,11 +379,11 @@ function computeStreaks(days) {
  */
 function loadPerfRecords() {
   records.value.altitude = rows(`SELECT V_ID, P_MaxAlt, V_Date, V_Site FROM Perf JOIN Vol ON V_ID = P_V_ID
-    WHERE P_MaxAlt IS NOT NULL ORDER BY P_MaxAlt DESC LIMIT ${TOP}`)
+    WHERE P_MaxAlt IS NOT NULL${yearCond()} ORDER BY P_MaxAlt DESC LIMIT ${TOP}`)
     .map(([id, alt, date, site]) => ({ value: `${alt} m`, date: formatDate(date), site, link: flightLink(id) }));
 
   const perfRows = rows(`SELECT V_ID, V_Date, V_Site, V_Duree, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts
-    FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${perfKey(league.value)}'`)
+    FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${perfKey(league.value)}'${yearCond()}`)
     .map(([id, date, site, duree, odKm, odPts, triKm, triPts, faiKm, faiPts]) => ({
       id, date: formatDate(date), site, duree, link: flightLink(id),
       od: odPts ? { km: odKm, pts: odPts } : null,
@@ -474,6 +500,12 @@ function recomputeAll() {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.year-select {
+  min-width: 210px;
+  max-width: 210px;
+  background: white;
 }
 
 .records-header {
