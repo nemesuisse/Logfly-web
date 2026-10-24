@@ -28,8 +28,17 @@ async function getScoringModule() {
   return scoringModule;
 }
 
+// Yield to the event loop through a MessageChannel: unlike setTimeout,
+// it is not throttled when the tab is in the background
+const yieldChannel = new MessageChannel();
+const yieldQueue = [];
+yieldChannel.port1.onmessage = () => yieldQueue.shift()?.();
+
 function nextTick() {
-  return new Promise(resolve => setTimeout(resolve, 0));
+  return new Promise(resolve => {
+    yieldQueue.push(resolve);
+    yieldChannel.port2.postMessage(null);
+  });
 }
 
 /**
