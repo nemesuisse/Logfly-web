@@ -46,6 +46,9 @@
           <v-list-item :to="{ name: 'synthese-globale' }">
             <v-list-item-title>{{ $gettext('Global summary') }}</v-list-item-title>
           </v-list-item>
+          <v-list-item :to="{ name: 'records' }">
+            <v-list-item-title>{{ $gettext('Records') }}</v-list-item-title>
+          </v-list-item>
         </v-list>
       </v-menu>
 
@@ -188,6 +191,9 @@
         </v-list-item>
         <v-list-item :to="{ name: 'synthese-globale' }" @click="drawer = false">
           <v-list-item-title>{{ $gettext('Global summary') }}</v-list-item-title>
+        </v-list-item>
+        <v-list-item :to="{ name: 'records' }" @click="drawer = false">
+          <v-list-item-title>{{ $gettext('Records') }}</v-list-item-title>
         </v-list-item>
       </v-list-group>
 
