@@ -184,6 +184,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { useGettext } from "vue3-gettext";
+import { useRoute } from 'vue-router';
 import OpenLogbook from '@/components/OpenLogbook.vue';
 import LittleMapView from '@/components/LittleMapView.vue';
 import SiteFormDialog from '@/components/SiteFormDialog.vue';
@@ -199,6 +200,8 @@ const { $gettext } = useGettext();
 
 // Declare emits
 const emit = defineEmits(['dbUpdated']);
+
+const route = useRoute();
 
 // State
 const sites = ref([]);
@@ -256,6 +259,10 @@ const filteredSites = computed(() => {
 
 // Lifecycle
 onMounted(async () => {
+  // Site requested by another page (e.g. Records): ?site=name
+  if (route.query.site) {
+    search.value = String(route.query.site);
+  }
   if (databaseStore.hasOpenDatabase) {
     loadSites();
   }
@@ -290,7 +297,10 @@ watch(search, async () => {
  */
 function selectFirstFilteredSite() {
   if (filteredSites.value.length > 0) {
-    const firstSite = filteredSites.value[0];
+    // Prefer the site whose name matches the search exactly
+    const searchLower = search.value.toLowerCase();
+    const firstSite = filteredSites.value.find(site => site.S_Nom && site.S_Nom.toLowerCase() === searchLower)
+      || filteredSites.value[0];
     selectedItems.value = [firstSite.S_ID];
     selectedSite.value = firstSite;
     displaySiteOnMap(firstSite);

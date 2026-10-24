@@ -88,7 +88,7 @@
         <v-divider></v-divider>
 
         <!-- Virtual Scroll Flight List: fills remaining drawer height -->
-        <v-virtual-scroll :items="filteredFlights" class="flight-virtual-scroll" item-height="68">
+        <v-virtual-scroll ref="flightScrollRef" :items="filteredFlights" class="flight-virtual-scroll" item-height="68">
           <template v-slot:default="{ item }">
             <v-list-item :active="activeFlightId === item.V_ID" @click="onFlightSelect(item)" class="flight-item px-1"
               :ripple="false">
@@ -275,6 +275,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useGettext } from "vue3-gettext";
 import { useDisplay } from 'vuetify';
+import { useRoute, useRouter } from 'vue-router';
 import OpenLogbook from '@/components/OpenLogbook.vue';
 import LittleMapView from '@/components/LittleMapView.vue';
 import FullMapView from '@/components/FullMapView.vue';
@@ -303,6 +304,9 @@ const emit = defineEmits(['db-updated']);
 const databaseStore = useDatabaseStore();
 const { $gettext } = useGettext();
 const { mobile } = useDisplay();
+const route = useRoute();
+const router = useRouter();
+const flightScrollRef = ref(null);
 
 const drawer = ref(true); // Left drawer (Flight List)
 
@@ -530,8 +534,15 @@ function loadFlights(keepSelection = false) {
         }
       }
     } else if (!keepSelection) {
-      // Auto-select first flight on initial load
-      if (flights.value.length > 0 && !activeFlightId.value) {
+      // Flight requested by another page (e.g. Records): ?flight=V_ID
+      const requestedId = Number(route.query.flight);
+      const requestedIndex = requestedId ? flights.value.findIndex(f => f.V_ID === requestedId) : -1;
+      if (requestedIndex >= 0) {
+        onFlightSelect(flights.value[requestedIndex]);
+        router.replace({ query: {} });
+        nextTick(() => flightScrollRef.value?.scrollToIndex(requestedIndex));
+      } else if (flights.value.length > 0 && !activeFlightId.value) {
+        // Auto-select first flight on initial load
         onFlightSelect(flights.value[0]);
       }
     }

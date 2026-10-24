@@ -28,7 +28,8 @@
         </div>
         <v-table v-if="panel.rows.length > 0" density="compact" class="record-table">
           <tbody>
-            <tr v-for="(row, index) in panel.rows" :key="index">
+            <tr v-for="(row, index) in panel.rows" :key="index" class="record-row" @click="openRow(row)"
+              :title="row.link.name === 'sites-view' ? $gettext('Open the site') : $gettext('Open the flight')">
               <td class="rank-cell">
                 <v-icon v-if="index < 3" size="18" :color="medalColors[index]">mdi-medal</v-icon>
                 <span v-else class="rank-number">{{ index + 1 }}</span>
@@ -62,6 +63,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useGettext } from "vue3-gettext";
+import { useRouter } from 'vue-router';
 import OpenLogbook from '@/components/OpenLogbook.vue';
 import { useDatabaseStore } from '@/stores/database';
 import {
@@ -70,6 +72,7 @@ import {
 
 const databaseStore = useDatabaseStore();
 const { $gettext } = useGettext();
+const router = useRouter();
 
 const TOP = 5;
 const medalColors = ['#FFC107', '#9E9E9E', '#A1887F'];
@@ -130,6 +133,14 @@ function rows(sql) {
   return [];
 }
 
+function flightLink(flightId) {
+  return { name: 'logbook-view', query: { flight: flightId } };
+}
+
+function openRow(row) {
+  router.push(row.link);
+}
+
 function formatDuration(seconds) {
   if (!seconds) return '';
   const hours = Math.floor(seconds / 3600);
@@ -156,32 +167,34 @@ function formatPts(pts) {
  * Records computed directly from the Vol table
  */
 function loadSqlRecords() {
-  records.value.longest = rows(`SELECT V_Duree, V_Date, V_Site, V_Engin FROM Vol
+  records.value.longest = rows(`SELECT V_ID, V_Duree, V_Date, V_Site, V_Engin FROM Vol
     WHERE V_Duree > 0 ORDER BY V_Duree DESC LIMIT ${TOP}`)
-    .map(([duree, date, site, glider]) => ({
-      value: formatDuration(duree), extra: glider, date: formatDate(date), site
+    .map(([id, duree, date, site, glider]) => ({
+      value: formatDuration(duree), extra: glider, date: formatDate(date), site, link: flightLink(id)
     }));
 
   records.value.sites = rows(`SELECT V_Site, COUNT(*) AS Nb, SUM(V_Duree) AS Total, MAX(V_Date) FROM Vol
     WHERE V_Site IS NOT NULL AND V_Site != '' GROUP BY V_Site ORDER BY Nb DESC, Total DESC LIMIT ${TOP}`)
     .map(([site, nb, total, last]) => ({
       value: site, extra: `${nb} ${$gettext('flights')} · ${formatDuration(total)}`,
-      date: formatDate(last), site: $gettext('Last flight')
+      date: formatDate(last), site: $gettext('Last flight'),
+      link: { name: 'sites-view', query: { site } }
     }));
 
-  records.value.streaks = computeStreaks(rows(`SELECT date(V_Date) AS Day, COUNT(*) FROM Vol
-    WHERE V_Date IS NOT NULL GROUP BY Day ORDER BY Day`));
+  records.value.streaks = computeStreaks(rows(`SELECT date(V_Date) AS Day, COUNT(*),
+    (SELECT V_ID FROM Vol AS First WHERE date(First.V_Date) = date(Vol.V_Date) ORDER BY First.V_Date LIMIT 1)
+    FROM Vol WHERE V_Date IS NOT NULL GROUP BY Day ORDER BY Day`));
 }
 
 /**
  * Longest series of consecutive flying days
- * @param {Array} days [['YYYY-MM-DD', nbFlights], ...] sorted ascending
+ * @param {Array} days [['YYYY-MM-DD', nbFlights, firstFlightId], ...] sorted ascending
  */
 function computeStreaks(days) {
   const dayMs = 24 * 3600 * 1000;
   const streaks = [];
   let current = null;
-  for (const [day, nb] of days) {
+  for (const [day, nb, firstId] of days) {
     if (!day) continue;
     const time = Date.parse(day + 'T00:00:00Z');
     if (current && Math.round((time - current.lastTime) / dayMs) === 1) {
@@ -190,7 +203,7 @@ function computeStreaks(days) {
       current.end = day;
       current.lastTime = time;
     } else {
-      current = { start: day, end: day, days: 1, flights: nb, lastTime: time };
+      current = { start: day, end: day, days: 1, flights: nb, lastTime: time, firstId };
       streaks.push(current);
     }
   }
@@ -201,7 +214,8 @@ function computeStreaks(days) {
       value: `${s.days} ${s.days > 1 ? $gettext('days') : $gettext('day')}`,
       extra: `${s.flights} ${$gettext('flights')}`,
       date: formatDate(s.start),
-      site: s.days > 1 ? `→ ${formatDate(s.end)}` : ''
+      site: s.days > 1 ? `→ ${formatDate(s.end)}` : '',
+      link: flightLink(s.firstId)
     }));
 }
 
@@ -209,14 +223,14 @@ function computeStreaks(days) {
  * Records computed from the Perf cache (track analysis)
  */
 function loadPerfRecords() {
-  records.value.altitude = rows(`SELECT P_MaxAlt, V_Date, V_Site FROM Perf JOIN Vol ON V_ID = P_V_ID
+  records.value.altitude = rows(`SELECT V_ID, P_MaxAlt, V_Date, V_Site FROM Perf JOIN Vol ON V_ID = P_V_ID
     WHERE P_MaxAlt IS NOT NULL ORDER BY P_MaxAlt DESC LIMIT ${TOP}`)
-    .map(([alt, date, site]) => ({ value: `${alt} m`, date: formatDate(date), site }));
+    .map(([id, alt, date, site]) => ({ value: `${alt} m`, date: formatDate(date), site, link: flightLink(id) }));
 
-  const perfRows = rows(`SELECT V_Date, V_Site, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts
+  const perfRows = rows(`SELECT V_ID, V_Date, V_Site, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts
     FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${league.value}'`)
-    .map(([date, site, odKm, odPts, triKm, triPts, faiKm, faiPts]) => ({
-      date: formatDate(date), site,
+    .map(([id, date, site, odKm, odPts, triKm, triPts, faiKm, faiPts]) => ({
+      date: formatDate(date), site, link: flightLink(id),
       od: odPts ? { km: odKm, pts: odPts } : null,
       tri: triPts ? { km: triKm, pts: triPts } : null,
       fai: faiPts ? { km: faiKm, pts: faiPts } : null
@@ -227,7 +241,9 @@ function loadPerfRecords() {
       .filter(r => r[code])
       .sort((a, b) => b[code].pts - a[code].pts)
       .slice(0, TOP)
-      .map(r => ({ value: formatPts(r[code].pts), extra: formatKm(r[code].km), date: r.date, site: r.site }));
+      .map(r => ({
+        value: formatPts(r[code].pts), extra: formatKm(r[code].km), date: r.date, site: r.site, link: r.link
+      }));
   }
 
   records.value.best = perfRows
@@ -243,7 +259,7 @@ function loadPerfRecords() {
     .map(r => ({
       value: formatPts(r.best.pts),
       extra: `${courseLabels.value[r.bestCode]} · ${formatKm(r.best.km)}`,
-      date: r.date, site: r.site
+      date: r.date, site: r.site, link: r.link
     }));
 }
 
@@ -340,6 +356,10 @@ function recomputeAll() {
   padding-top: 6px !important;
   padding-bottom: 6px !important;
   vertical-align: middle;
+}
+
+.record-row {
+  cursor: pointer;
 }
 
 .rank-cell {
