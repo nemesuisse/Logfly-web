@@ -25,6 +25,9 @@
         <div class="panel-title" :style="{ background: panel.color }">
           <v-icon size="22" color="white">{{ panel.icon }}</v-icon>
           <span>{{ panel.title }}</span>
+          <v-spacer />
+          <v-select v-if="panel.key === 'speed'" v-model="speedMinKm" :items="speedMinKmItems" density="compact"
+            variant="plain" hide-details class="speed-filter" @update:model-value="loadPerfRecords" />
         </div>
         <v-table v-if="panel.rows.length > 0" density="compact" class="record-table">
           <tbody>
@@ -83,8 +86,12 @@ const progress = ref({ done: 0, total: 0 });
 let stopRequested = false;
 
 const records = ref({
-  longest: [], altitude: [], best: [], fai: [], tri: [], od: [], sites: [], streaks: []
+  longest: [], altitude: [], best: [], fai: [], tri: [], od: [], speed: [], sites: [], streaks: []
 });
+
+// Average speed panel: only flights longer than this distance (km)
+const speedMinKm = ref(30);
+const speedMinKmItems = [30, 50, 100, 200].map(km => ({ title: `> ${km} km`, value: km }));
 
 const progressPercent = computed(() =>
   progress.value.total > 0 ? (progress.value.done / progress.value.total) * 100 : 0
@@ -103,6 +110,7 @@ const panels = computed(() => [
   { key: 'fai', title: $gettext('Best FAI triangles'), icon: 'mdi-triangle-outline', color: '#E53935', rows: records.value.fai, needsTracks: true },
   { key: 'tri', title: $gettext('Best flat triangles'), icon: 'mdi-vector-triangle', color: '#8E24AA', rows: records.value.tri, needsTracks: true },
   { key: 'od', title: $gettext('Best free distances'), icon: 'mdi-vector-polyline', color: '#00897B', rows: records.value.od, needsTracks: true },
+  { key: 'speed', title: $gettext('Average speed'), icon: 'mdi-speedometer', color: '#546E7A', rows: records.value.speed, needsTracks: true },
   { key: 'sites', title: $gettext('Most visited sites'), icon: 'mdi-map-marker-multiple', color: '#6D4C41', rows: records.value.sites },
   { key: 'streaks', title: $gettext('Longest flying streaks'), icon: 'mdi-calendar-check', color: '#3949AB', rows: records.value.streaks }
 ]);
@@ -227,10 +235,10 @@ function loadPerfRecords() {
     WHERE P_MaxAlt IS NOT NULL ORDER BY P_MaxAlt DESC LIMIT ${TOP}`)
     .map(([id, alt, date, site]) => ({ value: `${alt} m`, date: formatDate(date), site, link: flightLink(id) }));
 
-  const perfRows = rows(`SELECT V_ID, V_Date, V_Site, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts
+  const perfRows = rows(`SELECT V_ID, V_Date, V_Site, V_Duree, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts
     FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${perfKey(league.value)}'`)
-    .map(([id, date, site, odKm, odPts, triKm, triPts, faiKm, faiPts]) => ({
-      date: formatDate(date), site, link: flightLink(id),
+    .map(([id, date, site, duree, odKm, odPts, triKm, triPts, faiKm, faiPts]) => ({
+      date: formatDate(date), site, duree, link: flightLink(id),
       od: odPts ? { km: odKm, pts: odPts } : null,
       tri: triPts ? { km: triKm, pts: triPts } : null,
       fai: faiPts ? { km: faiKm, pts: faiPts } : null
@@ -246,14 +254,29 @@ function loadPerfRecords() {
       }));
   }
 
-  records.value.best = perfRows
+  // Best scoring course of each flight
+  const bestRows = perfRows
     .map(r => {
       const bestCode = ['od', 'tri', 'fai']
         .filter(code => r[code])
         .sort((a, b) => r[b].pts - r[a].pts)[0];
       return bestCode ? { ...r, bestCode, best: r[bestCode] } : null;
     })
-    .filter(r => r)
+    .filter(r => r);
+
+  // Average speed: distance of the best scoring course over the flight duration
+  records.value.speed = bestRows
+    .filter(r => r.duree > 0 && r.best.km > speedMinKm.value)
+    .map(r => ({ ...r, speed: r.best.km / (r.duree / 3600) }))
+    .sort((a, b) => b.speed - a.speed)
+    .slice(0, TOP)
+    .map(r => ({
+      value: `${r.speed.toFixed(1)} km/h`,
+      extra: `${courseLabels.value[r.bestCode]} · ${formatKm(r.best.km)} · ${formatDuration(r.duree)}`,
+      date: r.date, site: r.site, link: r.link
+    }));
+
+  records.value.best = [...bestRows]
     .sort((a, b) => b.best.pts - a.best.pts)
     .slice(0, TOP)
     .map(r => ({
@@ -356,6 +379,23 @@ function recomputeAll() {
   padding-top: 6px !important;
   padding-bottom: 6px !important;
   vertical-align: middle;
+}
+
+.speed-filter {
+  flex: 0 0 auto;
+  max-width: 110px;
+  margin: -8px 0;
+  color: white;
+  font-size: 0.85rem;
+}
+
+.speed-filter :deep(.v-field__input),
+.speed-filter :deep(.v-select__menu-icon) {
+  color: white;
+  opacity: 1;
+  padding-top: 0;
+  padding-bottom: 0;
+  min-height: 0;
 }
 
 .record-row {
