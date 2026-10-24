@@ -184,6 +184,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { useGettext } from "vue3-gettext";
+import { useRoute } from 'vue-router';
 import OpenLogbook from '@/components/OpenLogbook.vue';
 import LittleMapView from '@/components/LittleMapView.vue';
 import SiteFormDialog from '@/components/SiteFormDialog.vue';
@@ -199,6 +200,8 @@ const { $gettext } = useGettext();
 
 // Declare emits
 const emit = defineEmits(['dbUpdated']);
+
+const route = useRoute();
 
 // State
 const sites = ref([]);
@@ -256,6 +259,10 @@ const filteredSites = computed(() => {
 
 // Lifecycle
 onMounted(async () => {
+  // Site requested by another page (e.g. Records): ?site=name
+  if (route.query.site) {
+    search.value = String(route.query.site);
+  }
   if (databaseStore.hasOpenDatabase) {
     loadSites();
   }
@@ -290,7 +297,10 @@ watch(search, async () => {
  */
 function selectFirstFilteredSite() {
   if (filteredSites.value.length > 0) {
-    const firstSite = filteredSites.value[0];
+    // Prefer the site whose name matches the search exactly
+    const searchLower = search.value.toLowerCase();
+    const firstSite = filteredSites.value.find(site => site.S_Nom && site.S_Nom.toLowerCase() === searchLower)
+      || filteredSites.value[0];
     selectedItems.value = [firstSite.S_ID];
     selectedSite.value = firstSite;
     displaySiteOnMap(firstSite);
@@ -448,6 +458,7 @@ function insertSite(siteData) {
  * Update existing site in database
  */
 function updateSite(siteData) {
+  const oldName = sites.value.find(s => s.S_ID === siteData.id)?.S_Nom;
   const reqSQL = `UPDATE Site SET 
     S_Type = '${siteData.typeSite}',
     S_Nom = '${siteData.nom}',
@@ -465,6 +476,9 @@ function updateSite(siteData) {
   const result = databaseStore.update(reqSQL);
   if (result.success) {
     snackbarMessage.value = $gettext('Site updated successfully');
+    // Flights store the site name: rename them too
+    const flights = renameSiteFlights(oldName, siteData);
+    if (flights > 0) snackbarMessage.value += ` (${flights} ${$gettext('flights updated')})`;
     snackbar.value = true;
     loadSites();
     emit('dbUpdated');
@@ -477,6 +491,33 @@ function updateSite(siteData) {
     snackbarMessage.value = $gettext('Error updating site');
     snackbar.value = true;
   }
+}
+
+// Takeoff distance (degrees, ~500 m) to attach unnamed flights to a site
+const SITE_RADIUS_DEG = 0.005;
+
+/**
+ * Give the site name to its flights: flights using the old name, and flights still
+ * named "Site No xx (To rename)" taking off at the site (lost by earlier renames)
+ * @returns {number} number of flights renamed
+ */
+function renameSiteFlights(oldName, siteData) {
+  const esc = str => str.replace(/'/g, "''");
+  const newName = siteData.nom;
+  const conds = [];
+  // The site form upper-cases names, flights may not: compare case-insensitively
+  if (oldName) conds.push(`UPPER(TRIM(V_Site)) = UPPER(TRIM('${esc(oldName)}'))`);
+  const lat = parseFloat(siteData.lat), long = parseFloat(siteData.long);
+  if (!isNaN(lat) && !isNaN(long)) {
+    conds.push(`(V_Site LIKE 'Site No %' AND ABS(V_LatDeco - ${lat}) < ${SITE_RADIUS_DEG}
+      AND ABS(V_LongDeco - ${long}) < ${SITE_RADIUS_DEG})`);
+  }
+  if (conds.length === 0) return 0;
+  const where = `WHERE V_Site != '${esc(newName)}' AND (${conds.join(' OR ')})`;
+  const count = databaseStore.query(`SELECT COUNT(*) FROM Vol ${where}`);
+  const nb = count.success ? count.data[0]?.values[0][0] || 0 : 0;
+  if (nb > 0) databaseStore.update(`UPDATE Vol SET V_Site = '${esc(newName)}' ${where}`);
+  return nb;
 }
 
 /**

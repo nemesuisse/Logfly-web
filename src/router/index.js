@@ -54,6 +54,11 @@ const routes = [
         name: 'synthese-globale',
         component: () => import('../modules/Stat/views/GlobalSummary.vue'),
       },
+      {
+        path: 'records',
+        name: 'records',
+        component: () => import('../modules/Stat/views/RecordsView.vue'),
+      },
     ],
   },
 
