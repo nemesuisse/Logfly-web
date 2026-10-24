@@ -64,13 +64,6 @@ export function createSat() {
 }
 
 /**
- * Create a new MTK tile layer instance
- */
-export function createMtk() {
-  return L.tileLayer('https://tile2.maptoolkit.net/terrain/{z}/{x}/{y}.png');
-}
-
-/**
  * Create a new Esri World Topo Map tile layer instance
  */
 export function createEsriTopo() {
@@ -132,7 +125,6 @@ export function createBaseMaps() {
     'OpenTopoMap': createTopo(),
     'IGN': createIgn(),
     'Satellite': createSat(),
-    'Mtk': createMtk(),
     'Esri Topo': createEsriTopo(),
     'Outdoor': createOutdoor(),
     'Swisstopo': createSwisstopo(),
@@ -147,7 +139,7 @@ export function createBaseMaps() {
  */
 export function getDefaultLayerName() {
   const layerName = settings.value?.defaultMapLayer;
-  const validLayers = ['OpenStreetMap', 'OpenTopoMap', 'IGN', 'Satellite', 'Mtk', 'Esri Topo', 'Outdoor', 'Swisstopo', 'Swissimage'];
+  const validLayers = ['OpenStreetMap', 'OpenTopoMap', 'IGN', 'Satellite', 'Esri Topo', 'Outdoor', 'Swisstopo', 'Swissimage'];
   if (layerName && validLayers.includes(layerName)) {
     return layerName;
   }
@@ -160,7 +152,6 @@ export const osm = createOsm();
 export const topo = createTopo();
 export const ign = createIgn();
 export const sat = createSat();
-export const mtklayer = createMtk();
 export const Esri_WorldTopoMap = createEsriTopo();
 export const outdoorlayer = createOutdoor();
 export const kk7layer = createKk7();

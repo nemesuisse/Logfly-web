@@ -71,7 +71,6 @@ export const availableMapLayers = [
     'OpenTopoMap',
     'IGN',
     'Satellite',
-    'Mtk',
     'Esri Topo',
     'Outdoor',
     'Swisstopo',
