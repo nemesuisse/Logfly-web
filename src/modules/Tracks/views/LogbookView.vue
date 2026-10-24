@@ -197,7 +197,7 @@
             :showSkyways="true" :geoThermals="dataFlight?.anaTrack?.geoThermals"
             @open-full-map="onOpenFullMap" @open-cesium="onOpenCesium" @open-analyze="onOpenAnalyze" />
           <LittleMapView v-else-if="noIgcFlight" ref="littleMapRef" :hideOverlay="true"
-            :flightInfo="currentFlightInfo" />
+            :flightInfo="currentFlightInfo" :showSkyways="true" />
           <div v-else class="no-track-placeholder d-flex align-center justify-center flex-column bg-grey-lighten-4">
             <v-icon size="64" color="grey">mdi-map-marker-off</v-icon>
             <p class="text-h6 text-grey mt-4">{{ $gettext('Select a flight to view track') }}</p>
