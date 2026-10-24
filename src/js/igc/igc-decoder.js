@@ -189,12 +189,11 @@ export class IGCDecoder {
                     } else {
                         vario = (this.fixes[i].gpsAltitude - this.fixes[i - 1].gpsAltitude) / t
                     }
-                    if (vario > 20 || vario < -55) {
-                        if (i > 1) {
-                            vario = rawvario[i - 1]
-                        } else {
-                            vario = 0
-                        }
+                    if (vario > 20 || vario < -55 || !Number.isFinite(vario)) {
+                        // Impossible vario (GPS altitude jump): keep the previous value.
+                        // rawvario only holds the points with a time step, so its last value
+                        // is the previous one (rawvario[i - 1] could be past its end -> NaN)
+                        vario = rawvario.length > 0 ? rawvario[rawvario.length - 1] : 0
                     }
                 }
                 rawspeed.push(speed)
