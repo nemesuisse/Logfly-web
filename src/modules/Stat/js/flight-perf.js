@@ -58,7 +58,8 @@ export function getRecordsLeague() {
 }
 
 /**
- * Ids of flights with a track whose performance is missing or outdated
+ * Ids of flights with a track whose performance is missing or outdated,
+ * longest flights first so the records show up early
  * @param {Object} databaseStore
  * @param {string} league
  * @returns {number[]}
@@ -67,7 +68,7 @@ export function getFlightsToCompute(databaseStore, league) {
   const req = `SELECT V_ID FROM Vol LEFT JOIN Perf ON P_V_ID = V_ID
     WHERE V_IGC IS NOT NULL AND V_IGC != ''
     AND (P_V_ID IS NULL OR P_League != '${league}' OR P_IgcLen != length(V_IGC))
-    ORDER BY V_Date DESC`;
+    ORDER BY V_Duree DESC`;
   const result = databaseStore.query(req);
   if (result.success && result.data && result.data[0]) {
     return result.data[0].values.map(row => row[0]);
