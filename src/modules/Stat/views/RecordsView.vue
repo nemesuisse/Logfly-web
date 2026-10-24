@@ -47,11 +47,11 @@
                 <span v-else class="rank-number">{{ index + 1 }}</span>
               </td>
               <td class="value-cell">
-                <CourseIcon v-if="rowCourse(row)" class="row-course-icon" :course="rowCourse(row)" :size="46" />
                 <div class="record-value">{{ row.value }}</div>
                 <div v-if="row.extra" class="record-extra">{{ row.extra }}</div>
               </td>
               <td class="detail-cell">
+                <CourseIcon v-if="rowCourse(row)" class="row-course-icon" :course="rowCourse(row)" :size="60" />
                 <div class="record-date">{{ row.date }}</div>
                 <div class="record-site">{{ row.site }}</div>
               </td>
@@ -514,22 +514,18 @@ function recomputeAll() {
   cursor: pointer;
 }
 
-.value-cell {
-  position: relative;
-}
-
-/* Course icon as a watermark behind the flight description */
+/* Course icon as a watermark at the right of the row, behind the texts */
 .row-course-icon {
   position: absolute;
-  left: 50%;
+  right: 0;
   top: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateY(-50%);
   color: #9e9e9e;
   opacity: 0.22;
   pointer-events: none;
 }
 
-.value-cell > div {
+.detail-cell > div {
   position: relative;
 }
 
@@ -555,6 +551,7 @@ function recomputeAll() {
 }
 
 .detail-cell {
+  position: relative;
   text-align: right;
 }
 
