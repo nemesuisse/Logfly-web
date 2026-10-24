@@ -11,6 +11,9 @@ import { settings } from '@/js/settings/settingsService';
 // Course codes from igc-xc-score scoring rules
 export const COURSE_CODES = ['od', 'tri', 'fai'];
 
+// Bump when the stored values change meaning, to recompute all cached rows
+const PERF_VERSION = 2;
+
 // Maximum time spent by the solver on one course type of one flight (ms)
 const SOLVER_CAP_MS = 8000;
 // Duration of each solver slice before yielding to the UI (ms)
@@ -58,6 +61,15 @@ export function getRecordsLeague() {
 }
 
 /**
+ * Value stored in P_League: scoring league and cache version
+ * @param {string} league
+ * @returns {string}
+ */
+export function perfKey(league) {
+  return `${league}:${PERF_VERSION}`;
+}
+
+/**
  * Ids of flights with a track whose performance is missing or outdated,
  * longest flights first so the records show up early
  * @param {Object} databaseStore
@@ -67,7 +79,7 @@ export function getRecordsLeague() {
 export function getFlightsToCompute(databaseStore, league) {
   const req = `SELECT V_ID FROM Vol LEFT JOIN Perf ON P_V_ID = V_ID
     WHERE V_IGC IS NOT NULL AND V_IGC != ''
-    AND (P_V_ID IS NULL OR P_League != '${league}' OR P_IgcLen != length(V_IGC))
+    AND (P_V_ID IS NULL OR P_League != '${perfKey(league)}' OR P_IgcLen != length(V_IGC))
     ORDER BY V_Duree DESC`;
   const result = databaseStore.query(req);
   if (result.success && result.data && result.data[0]) {
@@ -91,8 +103,10 @@ async function solveCourse(flight, rules, shouldStop) {
   }
   const best = step.value;
   if (!best || !best.score || !best.scoreInfo) return null;
+  // Scored distance, after the triangle closing penalty (as shown by XContest)
+  const km = best.scoreInfo.distance - (best.scoreInfo.penalty || 0);
   return {
-    km: Math.round(best.scoreInfo.distance * 100) / 100,
+    km: Math.round(km * 100) / 100,
     pts: Math.round(best.score * 100) / 100
   };
 }
@@ -141,7 +155,7 @@ export async function computeFlightPerf(databaseStore, flightId, league, shouldS
   const val = v => (v === null || v === undefined ? 'NULL' : v);
   databaseStore.query(`INSERT OR REPLACE INTO Perf
     (P_V_ID, P_League, P_IgcLen, P_MaxAlt, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts)
-    VALUES (${flightId}, '${league}', ${igcLen}, ${val(perf.maxAlt)},
+    VALUES (${flightId}, '${perfKey(league)}', ${igcLen}, ${val(perf.maxAlt)},
     ${val(perf.od?.km)}, ${val(perf.od?.pts)}, ${val(perf.tri?.km)}, ${val(perf.tri?.pts)},
     ${val(perf.fai?.km)}, ${val(perf.fai?.pts)})`);
   return true;

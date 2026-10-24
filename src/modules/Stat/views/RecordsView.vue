@@ -67,7 +67,7 @@ import { useRouter } from 'vue-router';
 import OpenLogbook from '@/components/OpenLogbook.vue';
 import { useDatabaseStore } from '@/stores/database';
 import {
-  ensurePerfTable, getRecordsLeague, getFlightsToCompute, computeFlightPerf
+  ensurePerfTable, getRecordsLeague, getFlightsToCompute, computeFlightPerf, perfKey
 } from '@/modules/Stat/js/flight-perf.js';
 
 const databaseStore = useDatabaseStore();
@@ -228,7 +228,7 @@ function loadPerfRecords() {
     .map(([id, alt, date, site]) => ({ value: `${alt} m`, date: formatDate(date), site, link: flightLink(id) }));
 
   const perfRows = rows(`SELECT V_ID, V_Date, V_Site, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts
-    FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${league.value}'`)
+    FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${perfKey(league.value)}'`)
     .map(([id, date, site, odKm, odPts, triKm, triPts, faiKm, faiPts]) => ({
       date: formatDate(date), site, link: flightLink(id),
       od: odPts ? { km: odKm, pts: odPts } : null,
