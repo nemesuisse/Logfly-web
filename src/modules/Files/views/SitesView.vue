@@ -477,10 +477,8 @@ function updateSite(siteData) {
   if (result.success) {
     snackbarMessage.value = $gettext('Site updated successfully');
     // Flights store the site name: rename them too
-    if (oldName && oldName.trim().toUpperCase() !== siteData.nom.trim().toUpperCase()) {
-      const flights = renameSiteFlights(oldName, siteData.nom);
-      if (flights > 0) snackbarMessage.value += ` (${flights} ${$gettext('flights updated')})`;
-    }
+    const flights = renameSiteFlights(oldName, siteData);
+    if (flights > 0) snackbarMessage.value += ` (${flights} ${$gettext('flights updated')})`;
     snackbar.value = true;
     loadSites();
     emit('dbUpdated');
@@ -495,14 +493,27 @@ function updateSite(siteData) {
   }
 }
 
+// Takeoff distance (degrees, ~500 m) to attach unnamed flights to a site
+const SITE_RADIUS_DEG = 0.005;
+
 /**
- * Rename the site of the flights using the old name
+ * Give the site name to its flights: flights using the old name, and flights still
+ * named "Site No xx (To rename)" taking off at the site (lost by earlier renames)
  * @returns {number} number of flights renamed
  */
-function renameSiteFlights(oldName, newName) {
+function renameSiteFlights(oldName, siteData) {
   const esc = str => str.replace(/'/g, "''");
+  const newName = siteData.nom;
+  const conds = [];
   // The site form upper-cases names, flights may not: compare case-insensitively
-  const where = `WHERE UPPER(TRIM(V_Site)) = UPPER(TRIM('${esc(oldName)}'))`;
+  if (oldName) conds.push(`UPPER(TRIM(V_Site)) = UPPER(TRIM('${esc(oldName)}'))`);
+  const lat = parseFloat(siteData.lat), long = parseFloat(siteData.long);
+  if (!isNaN(lat) && !isNaN(long)) {
+    conds.push(`(V_Site LIKE 'Site No %' AND ABS(V_LatDeco - ${lat}) < ${SITE_RADIUS_DEG}
+      AND ABS(V_LongDeco - ${long}) < ${SITE_RADIUS_DEG})`);
+  }
+  if (conds.length === 0) return 0;
+  const where = `WHERE V_Site != '${esc(newName)}' AND (${conds.join(' OR ')})`;
   const count = databaseStore.query(`SELECT COUNT(*) FROM Vol ${where}`);
   const nb = count.success ? count.data[0]?.values[0][0] || 0 : 0;
   if (nb > 0) databaseStore.update(`UPDATE Vol SET V_Site = '${esc(newName)}' ${where}`);
