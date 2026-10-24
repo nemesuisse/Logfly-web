@@ -69,6 +69,9 @@
                                 :class="isSorted(column) ? 'sort-icon-active' : 'sort-icon-idle'">
                                 {{ isSorted(column) ? getSortIcon(column) : 'mdi-swap-vertical' }}
                             </v-icon>
+                            <v-tooltip v-if="column.key === 'M_Price'" activator="parent" location="top">
+                                {{ $gettext('Total') }} : {{ formatPrice(filteredPriceTotal) }}
+                            </v-tooltip>
                         </th>
                     </tr>
                 </template>
@@ -276,6 +279,10 @@ const filteredRecords = computed(() => {
         return true;
     });
 });
+
+const filteredPriceTotal = computed(() =>
+    filteredRecords.value.reduce((sum, rec) => sum + (parsePrice(rec.M_Price) ?? 0), 0)
+);
 
 function resetFilters() {
     filters.dateFrom = '';
