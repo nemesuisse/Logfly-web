@@ -22,12 +22,20 @@
     <!-- Panels -->
     <div class="panels-grid">
       <v-card v-for="panel in panels" :key="panel.key" class="record-panel" elevation="2">
-        <div class="panel-title" :style="{ background: panel.color }">
-          <v-icon size="22" color="white">{{ panel.icon }}</v-icon>
+        <div class="panel-title" :style="{ background: `linear-gradient(135deg, ${panel.colors[0]} 0%, ${panel.colors[1]} 100%)` }">
+          <v-icon class="panel-icon" size="72" color="white">{{ panel.icon }}</v-icon>
           <span>{{ panel.title }}</span>
-          <v-spacer />
-          <v-select v-if="panel.key === 'speed'" v-model="speedMinKm" :items="speedMinKmItems" density="compact"
-            variant="plain" hide-details class="speed-filter" @update:model-value="loadPerfRecords" />
+          <v-menu v-if="panel.key === 'speed'">
+            <template v-slot:activator="{ props }">
+              <button v-bind="props" class="speed-filter" type="button">
+                &gt; {{ speedMinKm }} km<v-icon size="20">mdi-menu-down</v-icon>
+              </button>
+            </template>
+            <v-list density="compact">
+              <v-list-item v-for="km in speedMinKmItems" :key="km" :active="km === speedMinKm"
+                :title="`> ${km} km`" @click="setSpeedMinKm(km)" />
+            </v-list>
+          </v-menu>
         </div>
         <v-table v-if="panel.rows.length > 0" density="compact" class="record-table">
           <tbody>
@@ -91,7 +99,12 @@ const records = ref({
 
 // Average speed panel: only flights longer than this distance (km)
 const speedMinKm = ref(30);
-const speedMinKmItems = [30, 50, 100, 200].map(km => ({ title: `> ${km} km`, value: km }));
+const speedMinKmItems = [30, 50, 100, 200];
+
+function setSpeedMinKm(km) {
+  speedMinKm.value = km;
+  loadPerfRecords();
+}
 
 const progressPercent = computed(() =>
   progress.value.total > 0 ? (progress.value.done / progress.value.total) * 100 : 0
@@ -104,15 +117,15 @@ const courseLabels = computed(() => ({
 }));
 
 const panels = computed(() => [
-  { key: 'longest', title: $gettext('Longest flights'), icon: 'mdi-timer-outline', color: '#1E88E5', rows: records.value.longest },
-  { key: 'altitude', title: $gettext('Altitude records'), icon: 'mdi-image-filter-hdr', color: '#43A047', rows: records.value.altitude, needsTracks: true },
-  { key: 'best', title: $gettext('Best scores'), icon: 'mdi-trophy-outline', color: '#FB8C00', rows: records.value.best, needsTracks: true },
-  { key: 'fai', title: $gettext('Best FAI triangles'), icon: 'mdi-triangle-outline', color: '#E53935', rows: records.value.fai, needsTracks: true },
-  { key: 'tri', title: $gettext('Best flat triangles'), icon: 'mdi-vector-triangle', color: '#8E24AA', rows: records.value.tri, needsTracks: true },
-  { key: 'od', title: $gettext('Best free distances'), icon: 'mdi-vector-polyline', color: '#00897B', rows: records.value.od, needsTracks: true },
-  { key: 'speed', title: $gettext('Average speed'), icon: 'mdi-speedometer', color: '#546E7A', rows: records.value.speed, needsTracks: true },
-  { key: 'sites', title: $gettext('Most visited sites'), icon: 'mdi-map-marker-multiple', color: '#6D4C41', rows: records.value.sites },
-  { key: 'streaks', title: $gettext('Longest flying streaks'), icon: 'mdi-calendar-check', color: '#3949AB', rows: records.value.streaks }
+  { key: 'best', title: $gettext('Best scores'), icon: 'mdi-trophy-outline', colors: ['#FF9800', '#EF6C00'], rows: records.value.best, needsTracks: true },
+  { key: 'fai', title: $gettext('Best FAI triangles'), icon: 'mdi-triangle-outline', colors: ['#f44336', '#c62828'], rows: records.value.fai, needsTracks: true },
+  { key: 'tri', title: $gettext('Best flat triangles'), icon: 'mdi-vector-triangle', colors: ['#AB47BC', '#7B1FA2'], rows: records.value.tri, needsTracks: true },
+  { key: 'od', title: $gettext('Best free distances'), icon: 'mdi-vector-polyline', colors: ['#26A69A', '#00796B'], rows: records.value.od, needsTracks: true },
+  { key: 'longest', title: $gettext('Longest flights'), icon: 'mdi-timer-outline', colors: ['#2196F3', '#1565C0'], rows: records.value.longest },
+  { key: 'speed', title: $gettext('Average speed'), icon: 'mdi-speedometer', colors: ['#78909C', '#455A64'], rows: records.value.speed, needsTracks: true },
+  { key: 'altitude', title: $gettext('Altitude records'), icon: 'mdi-image-filter-hdr', colors: ['#4CAF50', '#2E7D32'], rows: records.value.altitude, needsTracks: true },
+  { key: 'sites', title: $gettext('Most visited sites'), icon: 'mdi-map-marker-multiple', colors: ['#8D6E63', '#5D4037'], rows: records.value.sites },
+  { key: 'streaks', title: $gettext('Longest flying streaks'), icon: 'mdi-calendar-check', colors: ['#5C6BC0', '#283593'], rows: records.value.streaks }
 ]);
 
 onMounted(() => {
@@ -366,13 +379,32 @@ function recomputeAll() {
 }
 
 .panel-title {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 10px;
+  min-height: 84px;
+  padding: 12px 16px;
   color: white;
   font-weight: 600;
   font-size: 1rem;
+  text-transform: uppercase;
+}
+
+.panel-icon {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.panel-title > span,
+.speed-filter {
+  position: relative;
+  z-index: 1;
 }
 
 .record-table td {
@@ -382,20 +414,17 @@ function recomputeAll() {
 }
 
 .speed-filter {
-  flex: 0 0 auto;
-  max-width: 110px;
-  margin: -8px 0;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.25);
   color: white;
-  font-size: 0.85rem;
-}
-
-.speed-filter :deep(.v-field__input),
-.speed-filter :deep(.v-select__menu-icon) {
-  color: white;
-  opacity: 1;
-  padding-top: 0;
-  padding-bottom: 0;
-  min-height: 0;
+  font: inherit;
+  text-transform: none;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .record-row {
