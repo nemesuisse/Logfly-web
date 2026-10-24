@@ -534,6 +534,11 @@ function recomputeAll() {
   z-index: 1;
 }
 
+/* The row watermark overflows its row: clip it instead of showing a scrollbar */
+.record-table :deep(.v-table__wrapper) {
+  overflow: hidden;
+}
+
 .record-table td {
   padding-top: 6px !important;
   padding-bottom: 6px !important;
