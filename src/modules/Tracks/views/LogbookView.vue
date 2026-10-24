@@ -194,9 +194,10 @@
         <div class="map-wrapper" :class="{ 'hide-map-controls': mobile && drawer }">
           <LittleMapView v-if="decodedTrack && decodedTrack.GeoJSON" ref="littleMapRef" :geoJson="decodedTrack.GeoJSON"
             :scoreJson="scoreJson" :paddingLeft="$vuetify.display.mdAndUp ? 400 : 0" :flightInfo="currentFlightInfo"
+            :showSkyways="true"
             @open-full-map="onOpenFullMap" @open-cesium="onOpenCesium" @open-analyze="onOpenAnalyze" />
           <LittleMapView v-else-if="noIgcFlight" ref="littleMapRef" :hideOverlay="true"
-            :flightInfo="currentFlightInfo" />
+            :flightInfo="currentFlightInfo" :showSkyways="true" />
           <div v-else class="no-track-placeholder d-flex align-center justify-center flex-column bg-grey-lighten-4">
             <v-icon size="64" color="grey">mdi-map-marker-off</v-icon>
             <p class="text-h6 text-grey mt-4">{{ $gettext('Select a flight to view track') }}</p>

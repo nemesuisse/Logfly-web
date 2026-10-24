@@ -64,13 +64,6 @@ export function createSat() {
 }
 
 /**
- * Create a new MTK tile layer instance
- */
-export function createMtk() {
-  return L.tileLayer('http://tile2.maptoolkit.net/terrain/{z}/{x}/{y}.png');
-}
-
-/**
  * Create a new Esri World Topo Map tile layer instance
  */
 export function createEsriTopo() {
@@ -90,11 +83,32 @@ export function createOutdoor() {
 }
 
 /**
+ * Create a new swisstopo national map tile layer instance
+ */
+export function createSwisstopo() {
+  return L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+    maxZoom: 19,
+    maxNativeZoom: 18,
+    attribution: '&copy; <a href="https://www.swisstopo.admin.ch/">swisstopo</a>'
+  });
+}
+
+/**
+ * Create a new swisstopo aerial imagery (SWISSIMAGE) tile layer instance
+ */
+export function createSwissimage() {
+  return L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.swisstopo.admin.ch/">swisstopo</a>'
+  });
+}
+
+/**
  * Create a new KK7 thermal layer instance
  */
 export function createKk7() {
   return L.tileLayer('https://thermal.kk7.ch/tiles/skyways_all_all/{z}/{x}/{y}.png?src=logfly.app', {
-    attribution: 'thermal.kk7.ch <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC-BY-NC-SA>/a>',
+    attribution: 'thermal.kk7.ch <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC-BY-NC-SA</a>',
     maxNativeZoom: 13,
     tms: true,
     opacity: 0.5
@@ -111,9 +125,10 @@ export function createBaseMaps() {
     'OpenTopoMap': createTopo(),
     'IGN': createIgn(),
     'Satellite': createSat(),
-    'Mtk': createMtk(),
     'Esri Topo': createEsriTopo(),
-    'Outdoor': createOutdoor()
+    'Outdoor': createOutdoor(),
+    'Swisstopo': createSwisstopo(),
+    'Swissimage': createSwissimage()
   };
 }
 
@@ -124,7 +139,7 @@ export function createBaseMaps() {
  */
 export function getDefaultLayerName() {
   const layerName = settings.value?.defaultMapLayer;
-  const validLayers = ['OpenStreetMap', 'OpenTopoMap', 'IGN', 'Satellite', 'Mtk', 'Esri Topo', 'Outdoor'];
+  const validLayers = ['OpenStreetMap', 'OpenTopoMap', 'IGN', 'Satellite', 'Esri Topo', 'Outdoor', 'Swisstopo', 'Swissimage'];
   if (layerName && validLayers.includes(layerName)) {
     return layerName;
   }
@@ -137,7 +152,6 @@ export const osm = createOsm();
 export const topo = createTopo();
 export const ign = createIgn();
 export const sat = createSat();
-export const mtklayer = createMtk();
 export const Esri_WorldTopoMap = createEsriTopo();
 export const outdoorlayer = createOutdoor();
 export const kk7layer = createKk7();

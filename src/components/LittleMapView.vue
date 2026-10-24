@@ -44,7 +44,7 @@ import { useGettext } from "vue3-gettext";
 
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { createBaseMaps, getDefaultLayerName } from '@/js/leaflet/tiles.js';
+import { createBaseMaps, getDefaultLayerName, createKk7 } from '@/js/leaflet/tiles.js';
 import { startIcon, endIcon } from '@/js/leaflet/map-utils.js';
 
 // Import site type icons
@@ -108,6 +108,10 @@ const props = defineProps({
   flightInfo: {
     type: Object,
     default: null
+  },
+  showSkyways: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -120,6 +124,7 @@ let scoreLayer = null;
 let startMarker = null;
 let endMarker = null;
 let resizeObserver = null;
+let layerControl = null;
 
 onMounted(() => {
   // Initialiser la carte Leaflet — zoom control to top-right to avoid drawer overlap
@@ -133,7 +138,12 @@ onMounted(() => {
   mapBaseLayers[getDefaultLayerName()].addTo(map);
 
   // Ajouter le contrôleur de couches
-  L.control.layers(mapBaseLayers, null, { collapsed: false }).addTo(map);
+  layerControl = L.control.layers(mapBaseLayers, null, { collapsed: false }).addTo(map);
+
+  // Skyways overlay (kk7), same as the full map
+  if (props.showSkyways) {
+    layerControl.addOverlay(createKk7(), 'Skyways kk7.ch');
+  }
 
   // Forcer un rafraîchissement après un court délai
   setTimeout(() => {
