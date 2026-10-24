@@ -517,7 +517,7 @@ function recomputeAll() {
 /* Course icon as a watermark at the right of the row, behind the texts */
 .row-course-icon {
   position: absolute;
-  right: 0;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
   color: #9e9e9e;
