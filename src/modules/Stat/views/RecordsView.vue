@@ -47,8 +47,7 @@
                 <span v-else class="rank-number">{{ index + 1 }}</span>
               </td>
               <td class="value-cell">
-                <CourseIcon v-if="rowCourse(row)" class="row-course-icon" :course="rowCourse(row)" :size="34"
-                  :title="courseLabels[rowCourse(row)]" />
+                <CourseIcon v-if="rowCourse(row)" class="row-course-icon" :course="rowCourse(row)" :size="46" />
                 <div class="record-value">{{ row.value }}</div>
                 <div v-if="row.extra" class="record-extra">{{ row.extra }}</div>
               </td>
@@ -339,16 +338,6 @@ function loadPerfRecords() {
       fai: faiPts ? { km: faiKm, pts: faiPts } : null
     }));
 
-  for (const code of ['od', 'tri', 'fai']) {
-    records.value[code] = perfRows
-      .filter(r => r[code])
-      .sort((a, b) => b[code].pts - a[code].pts)
-      .slice(0, TOP)
-      .map(r => ({
-        value: formatPts(r[code].pts), extra: formatKm(r[code].km), date: r.date, site: r.site, link: r.link
-      }));
-  }
-
   // Best scoring course of each flight
   const bestRows = perfRows
     .map(r => {
@@ -359,6 +348,17 @@ function loadPerfRecords() {
     })
     .filter(r => r);
   bestCourseById.value = Object.fromEntries(bestRows.map(r => [r.id, r.bestCode]));
+
+  // Course panels: a flight only counts in the course of its best score
+  for (const code of ['od', 'tri', 'fai']) {
+    records.value[code] = bestRows
+      .filter(r => r.bestCode === code)
+      .sort((a, b) => b.best.pts - a.best.pts)
+      .slice(0, TOP)
+      .map(r => ({
+        value: formatPts(r.best.pts), extra: formatKm(r.best.km), date: r.date, site: r.site, link: r.link
+      }));
+  }
 
   // Average speed: distance of the best scoring course over the flight duration
   records.value.speed = bestRows
@@ -516,16 +516,21 @@ function recomputeAll() {
 
 .value-cell {
   position: relative;
-  padding-right: 44px !important;
 }
 
+/* Course icon as a watermark behind the flight description */
 .row-course-icon {
   position: absolute;
-  right: 4px;
+  left: 50%;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translate(-50%, -50%);
   color: #9e9e9e;
-  opacity: 0.45;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.value-cell > div {
+  position: relative;
 }
 
 .rank-cell {
