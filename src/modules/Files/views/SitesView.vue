@@ -458,6 +458,7 @@ function insertSite(siteData) {
  * Update existing site in database
  */
 function updateSite(siteData) {
+  const oldName = sites.value.find(s => s.S_ID === siteData.id)?.S_Nom;
   const reqSQL = `UPDATE Site SET 
     S_Type = '${siteData.typeSite}',
     S_Nom = '${siteData.nom}',
@@ -475,6 +476,11 @@ function updateSite(siteData) {
   const result = databaseStore.update(reqSQL);
   if (result.success) {
     snackbarMessage.value = $gettext('Site updated successfully');
+    // Flights store the site name: rename them too
+    if (oldName && oldName !== siteData.nom) {
+      const flights = renameSiteFlights(oldName, siteData.nom);
+      if (flights > 0) snackbarMessage.value += ` (${flights} ${$gettext('flights updated')})`;
+    }
     snackbar.value = true;
     loadSites();
     emit('dbUpdated');
@@ -487,6 +493,18 @@ function updateSite(siteData) {
     snackbarMessage.value = $gettext('Error updating site');
     snackbar.value = true;
   }
+}
+
+/**
+ * Rename the site of the flights using the old name
+ * @returns {number} number of flights renamed
+ */
+function renameSiteFlights(oldName, newName) {
+  const esc = str => str.replace(/'/g, "''");
+  const count = databaseStore.query(`SELECT COUNT(*) FROM Vol WHERE V_Site = '${esc(oldName)}'`);
+  const nb = count.success ? count.data[0]?.values[0][0] || 0 : 0;
+  if (nb > 0) databaseStore.update(`UPDATE Vol SET V_Site = '${esc(newName)}' WHERE V_Site = '${esc(oldName)}'`);
+  return nb;
 }
 
 /**
