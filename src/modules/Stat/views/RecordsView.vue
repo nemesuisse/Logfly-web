@@ -43,6 +43,7 @@
             <tr v-for="(row, index) in panel.rows" :key="index" class="record-row" @click="openRow(row)"
               :title="row.link.name === 'sites-view' ? $gettext('Open the site') : $gettext('Open the flight')">
               <td class="rank-cell">
+                <CourseIcon v-if="rowCourse(row)" class="row-course-icon" :course="rowCourse(row)" :size="60" />
                 <v-icon v-if="index < 3" size="18" :color="medalColors[index]">mdi-medal</v-icon>
                 <span v-else class="rank-number">{{ index + 1 }}</span>
               </td>
@@ -51,7 +52,6 @@
                 <div v-if="row.extra" class="record-extra">{{ row.extra }}</div>
               </td>
               <td class="detail-cell">
-                <CourseIcon v-if="rowCourse(row)" class="row-course-icon" :course="rowCourse(row)" :size="60" />
                 <div class="record-date">{{ row.date }}</div>
                 <div class="record-site">{{ row.site }}</div>
               </td>
@@ -514,22 +514,23 @@ function recomputeAll() {
   cursor: pointer;
 }
 
-/* Course icon as a watermark at the right of the row, behind the texts */
+/* Course icon as a watermark at the left of the row, behind the medal */
 .row-course-icon {
   position: absolute;
-  right: 4px;
+  left: 50%;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translate(-50%, -50%);
   color: #9e9e9e;
   opacity: 0.22;
   pointer-events: none;
 }
 
-.detail-cell > div {
+.rank-cell > :not(.row-course-icon) {
   position: relative;
 }
 
 .rank-cell {
+  position: relative;
   width: 36px;
   text-align: center;
 }
@@ -551,7 +552,6 @@ function recomputeAll() {
 }
 
 .detail-cell {
-  position: relative;
   text-align: right;
 }
 
