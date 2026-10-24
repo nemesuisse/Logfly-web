@@ -477,7 +477,7 @@ function updateSite(siteData) {
   if (result.success) {
     snackbarMessage.value = $gettext('Site updated successfully');
     // Flights store the site name: rename them too
-    if (oldName && oldName !== siteData.nom) {
+    if (oldName && oldName.trim().toUpperCase() !== siteData.nom.trim().toUpperCase()) {
       const flights = renameSiteFlights(oldName, siteData.nom);
       if (flights > 0) snackbarMessage.value += ` (${flights} ${$gettext('flights updated')})`;
     }
@@ -501,9 +501,11 @@ function updateSite(siteData) {
  */
 function renameSiteFlights(oldName, newName) {
   const esc = str => str.replace(/'/g, "''");
-  const count = databaseStore.query(`SELECT COUNT(*) FROM Vol WHERE V_Site = '${esc(oldName)}'`);
+  // The site form upper-cases names, flights may not: compare case-insensitively
+  const where = `WHERE UPPER(TRIM(V_Site)) = UPPER(TRIM('${esc(oldName)}'))`;
+  const count = databaseStore.query(`SELECT COUNT(*) FROM Vol ${where}`);
   const nb = count.success ? count.data[0]?.values[0][0] || 0 : 0;
-  if (nb > 0) databaseStore.update(`UPDATE Vol SET V_Site = '${esc(newName)}' WHERE V_Site = '${esc(oldName)}'`);
+  if (nb > 0) databaseStore.update(`UPDATE Vol SET V_Site = '${esc(newName)}' ${where}`);
   return nb;
 }
 
