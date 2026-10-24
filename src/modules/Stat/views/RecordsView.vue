@@ -44,7 +44,7 @@
               :title="row.link.name === 'sites-view' ? $gettext('Open the site') : $gettext('Open the flight')">
               <td class="rank-cell">
                 <CourseIcon v-if="rowCourse(row)" class="row-course-icon" :course="rowCourse(row)" :size="60" />
-                <v-icon v-if="index < 3" size="18" :color="medalColors[index]">mdi-medal</v-icon>
+                <RankMedal v-if="index < 3" :rank="index + 1" :size="30" />
                 <span v-else class="rank-number">{{ index + 1 }}</span>
               </td>
               <td class="value-cell">
@@ -117,6 +117,7 @@ import { useRouter } from 'vue-router';
 import OpenLogbook from '@/components/OpenLogbook.vue';
 import FullMapView from '@/components/FullMapView.vue';
 import CourseIcon from '@/modules/Stat/components/CourseIcon.vue';
+import RankMedal from '@/modules/Stat/components/RankMedal.vue';
 import { useDatabaseStore } from '@/stores/database';
 import { igcDecoding } from '@/js/igc/igc-decoder.js';
 import { IgcAnalyze } from '@/js/igc/igc-analyzer.js';
@@ -129,7 +130,6 @@ const { $gettext } = useGettext();
 const router = useRouter();
 
 const TOP = 5;
-const medalColors = ['#FFC107', '#9E9E9E', '#A1887F'];
 
 const league = ref(getRecordsLeague());
 const computing = ref(false);
