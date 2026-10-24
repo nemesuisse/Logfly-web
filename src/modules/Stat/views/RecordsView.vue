@@ -8,6 +8,11 @@
       <v-chip size="small" color="primary" variant="tonal">{{ $gettext('Scoring') }} {{ league }}</v-chip>
       <v-select v-model="yearFilter" :items="yearItems" density="compact" variant="outlined" hide-details
         class="year-select" prepend-inner-icon="mdi-calendar" @update:model-value="loadAll" />
+      <v-select v-model="gliderFilter" :items="gliderItems" density="compact" variant="outlined" hide-details
+        class="glider-select" prepend-inner-icon="mdi-parachute" @update:model-value="loadAll" />
+      <v-autocomplete v-model="siteFilter" :items="siteList" density="compact" variant="outlined" hide-details
+        class="site-select" prepend-inner-icon="mdi-map-marker" clearable auto-select-first
+        :placeholder="$gettext('All sites')" persistent-placeholder @update:model-value="onSiteFilterChange" />
       <v-spacer />
       <div v-if="computing" class="progress-box">
         <span class="text-caption">
@@ -154,15 +159,49 @@ const yearItems = computed(() => [
   ...yearList.value.map(y => ({ title: y, value: y }))
 ]);
 
-// SQL condition restricting Vol rows to the selected year
-function yearCond(table = 'Vol') {
-  return yearFilter.value ? ` AND strftime('%Y', ${table}.V_Date) = '${yearFilter.value}'` : '';
+// Global glider filter (null = all gliders)
+const gliderFilter = ref(null);
+const gliderList = ref([]);
+const gliderItems = computed(() => [
+  { title: $gettext('All gliders'), value: null },
+  ...gliderList.value.map(g => ({ title: g, value: g }))
+]);
+
+// Global site filter (null = all sites)
+const siteFilter = ref(null);
+const siteList = ref([]);
+
+function onSiteFilterChange(site) {
+  siteFilter.value = site || null;
+  loadAll();
+}
+
+// SQL condition restricting Vol rows to the selected year, glider and site
+function filterCond(table = 'Vol') {
+  let cond = yearFilter.value ? ` AND strftime('%Y', ${table}.V_Date) = '${yearFilter.value}'` : '';
+  if (gliderFilter.value) cond += ` AND ${table}.V_Engin = '${gliderFilter.value.replace(/'/g, "''")}'`;
+  if (siteFilter.value) cond += ` AND ${table}.V_Site = '${siteFilter.value.replace(/'/g, "''")}'`;
+  return cond;
 }
 
 function loadYears() {
   yearList.value = rows(`SELECT DISTINCT strftime('%Y', V_Date) AS Y FROM Vol
     WHERE V_Date IS NOT NULL ORDER BY Y DESC`).map(([y]) => y).filter(y => y);
   if (yearFilter.value && !yearList.value.includes(yearFilter.value)) yearFilter.value = null;
+}
+
+// Gliders, most recently flown first
+function loadGliders() {
+  gliderList.value = rows(`SELECT V_Engin FROM Vol WHERE V_Engin IS NOT NULL AND V_Engin != ''
+    GROUP BY V_Engin ORDER BY MAX(V_Date) DESC`).map(([g]) => g);
+  if (gliderFilter.value && !gliderList.value.includes(gliderFilter.value)) gliderFilter.value = null;
+}
+
+// Sites, alphabetical
+function loadSites() {
+  siteList.value = rows(`SELECT DISTINCT V_Site FROM Vol WHERE V_Site IS NOT NULL AND V_Site != ''
+    ORDER BY V_Site COLLATE NOCASE`).map(([site]) => site);
+  if (siteFilter.value && !siteList.value.includes(siteFilter.value)) siteFilter.value = null;
 }
 
 function loadAll() {
@@ -221,6 +260,8 @@ function init() {
   league.value = getRecordsLeague();
   ensurePerfTable(databaseStore);
   loadYears();
+  loadGliders();
+  loadSites();
   loadAll();
   computeMissing();
 }
@@ -323,13 +364,13 @@ function formatPts(pts) {
  */
 function loadSqlRecords() {
   records.value.longest = rows(`SELECT V_ID, V_Duree, V_Date, V_Site, V_Engin FROM Vol
-    WHERE V_Duree > 0${yearCond()} ORDER BY V_Duree DESC LIMIT ${TOP}`)
+    WHERE V_Duree > 0${filterCond()} ORDER BY V_Duree DESC LIMIT ${TOP}`)
     .map(([id, duree, date, site, glider]) => ({
       value: formatDuration(duree), extra: glider, date: formatDate(date), site, link: flightLink(id)
     }));
 
   records.value.sites = rows(`SELECT V_Site, COUNT(*) AS Nb, SUM(V_Duree) AS Total, MAX(V_Date) FROM Vol
-    WHERE V_Site IS NOT NULL AND V_Site != ''${yearCond()} GROUP BY V_Site ORDER BY Nb DESC, Total DESC LIMIT ${TOP}`)
+    WHERE V_Site IS NOT NULL AND V_Site != ''${filterCond()} GROUP BY V_Site ORDER BY Nb DESC, Total DESC LIMIT ${TOP}`)
     .map(([site, nb, total, last]) => ({
       value: site, extra: `${nb} ${$gettext('flights')} · ${formatDuration(total)}`,
       date: formatDate(last), site: $gettext('Last flight'),
@@ -338,7 +379,7 @@ function loadSqlRecords() {
 
   records.value.streaks = computeStreaks(rows(`SELECT date(V_Date) AS Day, COUNT(*),
     (SELECT V_ID FROM Vol AS First WHERE date(First.V_Date) = date(Vol.V_Date) ORDER BY First.V_Date LIMIT 1)
-    FROM Vol WHERE V_Date IS NOT NULL${yearCond()} GROUP BY Day ORDER BY Day`));
+    FROM Vol WHERE V_Date IS NOT NULL${filterCond()} GROUP BY Day ORDER BY Day`));
 }
 
 /**
@@ -379,11 +420,11 @@ function computeStreaks(days) {
  */
 function loadPerfRecords() {
   records.value.altitude = rows(`SELECT V_ID, P_MaxAlt, V_Date, V_Site FROM Perf JOIN Vol ON V_ID = P_V_ID
-    WHERE P_MaxAlt IS NOT NULL${yearCond()} ORDER BY P_MaxAlt DESC LIMIT ${TOP}`)
+    WHERE P_MaxAlt IS NOT NULL${filterCond()} ORDER BY P_MaxAlt DESC LIMIT ${TOP}`)
     .map(([id, alt, date, site]) => ({ value: `${alt} m`, date: formatDate(date), site, link: flightLink(id) }));
 
   const perfRows = rows(`SELECT V_ID, V_Date, V_Site, V_Duree, P_OdKm, P_OdPts, P_TriKm, P_TriPts, P_FaiKm, P_FaiPts
-    FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${perfKey(league.value)}'${yearCond()}`)
+    FROM Perf JOIN Vol ON V_ID = P_V_ID WHERE P_League = '${perfKey(league.value)}'${filterCond()}`)
     .map(([id, date, site, duree, odKm, odPts, triKm, triPts, faiKm, faiPts]) => ({
       id, date: formatDate(date), site, duree, link: flightLink(id),
       od: odPts ? { km: odKm, pts: odPts } : null,
@@ -502,9 +543,21 @@ function recomputeAll() {
   gap: 16px;
 }
 
+.site-select {
+  min-width: 260px;
+  max-width: 260px;
+  background: white;
+}
+
+.glider-select {
+  min-width: 230px;
+  max-width: 230px;
+  background: white;
+}
+
 .year-select {
-  min-width: 210px;
-  max-width: 210px;
+  min-width: 230px;
+  max-width: 230px;
   background: white;
 }
 
