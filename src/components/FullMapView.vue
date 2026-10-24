@@ -26,7 +26,36 @@
         <div class="content-wrapper">
             <div class="map-section">
                 <MapLeaflet ref="mapLeaflet" :geoJson="flightData?.decodedIgc?.GeoJSON"
-                    :fixes="flightData?.decodedIgc?.fixes" @map-ready="onMapReady" @track-clicked="onTrackClicked" />
+                    :fixes="flightData?.decodedIgc?.fixes" :trackSeries="trackSeries" @map-ready="onMapReady"
+                    @track-clicked="onTrackClicked" />
+                <!-- Track colouring: plain, altitude, vario or speed (same choice as the logbook map) -->
+                <div class="track-mode-badge bg-white rounded-pill px-3 py-1 elevation-2 text-body-2 d-flex align-center">
+                    <v-menu location="top end">
+                        <template v-slot:activator="{ props: menuProps }">
+                            <button v-bind="menuProps" type="button" class="track-mode-btn d-flex align-center">
+                                <span class="track-dot mr-2" :style="{ background: trackModeSwatch(trackMode) }"></span>
+                                <span class="font-weight-bold">{{ trackModeLabel(trackMode, $gettext) }}</span>
+                                <v-icon size="18">mdi-menu-down</v-icon>
+                            </button>
+                        </template>
+                        <v-list density="compact">
+                            <v-list-item v-for="mode in TRACK_MODES" :key="mode" :active="mode === trackMode"
+                                @click="setTrackMode(mode)">
+                                <template v-slot:prepend>
+                                    <span class="track-dot mr-3" :style="{ background: trackModeSwatch(mode) }"></span>
+                                </template>
+                                <v-list-item-title>{{ trackModeLabel(mode, $gettext) }}</v-list-item-title>
+                            </v-list-item>
+                        </v-list>
+                    </v-menu>
+                    <span v-if="trackLegend" class="ml-2 text-caption text-grey-darken-2 d-flex align-center">
+                        {{ trackLegend.low }}
+                        <span class="legend-bar mx-1" :style="{ background: GRADIENT_CSS }">
+                            <span v-if="trackLegend.mid" class="legend-mid">{{ trackLegend.mid }}</span>
+                        </span>
+                        {{ trackLegend.high }}
+                    </span>
+                </div>
             </div>
 
             <div class="graph-info" id="graph-info" ref="graphInfo">
@@ -63,7 +92,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import MapLeaflet from './MapLeaflet.vue'
 import GraphUplot from './GraphUplot.vue'
@@ -75,7 +104,10 @@ import ScoreDialog from './ScoreDialog.vue'
 import CuttingDialog from './CuttingDialog.vue'
 import ProgressDialog from './ProgressDialog.vue'
 import { interruptCheck } from '@/js/airspaces/airspaces-open.js'
-import { igcScoring } from '@/js/igc/igc-scoring.js'
+import { igcScoring, autoScoreFlight, getDisplayLeague } from '@/js/igc/igc-scoring.js'
+import {
+    TRACK_MODES, GRADIENT_CSS, readTrackMode, saveTrackMode, trackModeLabel, trackModeSwatch
+} from '@/js/leaflet/track-style.js'
 import { getAltitudesForPoints } from '@/js/geo/elevation.js'
 import { encodeIGC } from '@/js/igc/igc-encoding.js'
 import { parseIGC } from '@/modules/Tracks/js/igc-parser.js'
@@ -235,9 +267,25 @@ function onTrackClicked(type) {
 }
 
 
+// Track colouring, remembered with the logbook map
+const trackMode = ref(readTrackMode())
+const trackLegend = ref(null)
+const trackSeries = computed(() => {
+    const decoded = props.flightData?.decodedIgc
+    return decoded ? { vz: decoded.vz, speed: decoded.speed } : null
+})
+
+function setTrackMode(mode) {
+    trackMode.value = mode
+    saveTrackMode(mode)
+    if (mapLeaflet.value) trackLegend.value = mapLeaflet.value.setTrackColoring(mode)
+}
+
 function onMapReady(mapInstance) {
     // Load extra layers if data available
     loadAnalysisLayers()
+    autoScore()
+    trackLegend.value = mapLeaflet.value ? mapLeaflet.value.setTrackColoring(trackMode.value) : null
     if (props.flightData?.hikeData && mapLeaflet.value) {
         mapLeaflet.value.displayHike(props.flightData.hikeData)
     }
@@ -300,12 +348,43 @@ function onDisplayVerification(checkResult) {
     }
 }
 
+// Best course drawn over the track when the map opens (league from the settings),
+// unless the user already scored the flight with the Score button
+let autoScoreStopped = false
+let manualScoreDone = false
+
+async function autoScore() {
+    const fixes = props.flightData?.decodedIgc?.fixes
+    if (!fixes) return
+    const league = getDisplayLeague()
+    const geojson = await autoScoreFlight({
+        fixes,
+        league,
+        cacheKey: props.flightData.dbId ?? null,
+        shouldStop: () => autoScoreStopped || manualScoreDone
+    })
+    if (geojson && !manualScoreDone && mapLeaflet.value) {
+        // Keep the view on the whole track
+        mapLeaflet.value.displayScoringResult(geojson, league, {
+            fit: false,
+            offsetUTC: props.flightData?.decodedIgc?.info?.offsetUTC
+        })
+    }
+}
+
+onBeforeUnmount(() => {
+    autoScoreStopped = true
+})
+
 function onScoreResult({ league, result }) {
+    manualScoreDone = true
     currentLeague.value = league
     currentScoreResult.value = result
     scoreResultDialog.value = true
     if (mapLeaflet.value) {
-        mapLeaflet.value.displayScoringResult(result, league)
+        mapLeaflet.value.displayScoringResult(result, league, {
+            offsetUTC: props.flightData?.decodedIgc?.info?.offsetUTC
+        })
     }
 }
 
@@ -516,9 +595,51 @@ async function confirmCut() {
 }
 
 .map-section {
+    position: relative;
     flex: 1;
     min-height: 0;
     border: 1px solid #e0e0e0;
+}
+
+/* Track colouring selector, bottom right of the map (above the attribution) */
+.track-mode-badge {
+    position: absolute;
+    right: 10px;
+    bottom: 24px;
+    z-index: 1000;
+}
+
+.track-mode-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+}
+
+.track-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.legend-bar {
+    position: relative;
+    display: inline-block;
+    width: 70px;
+    height: 8px;
+    border-radius: 2px;
+}
+
+/* "0" in the middle of the vario scale */
+.legend-mid {
+    position: absolute;
+    left: 50%;
+    top: -14px;
+    transform: translateX(-50%);
+    font-size: 10px;
+    line-height: 1;
 }
 
 .graph-info {

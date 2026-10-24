@@ -10,6 +10,10 @@ import 'leaflet/dist/leaflet.css'
 import { baseMaps, kk7layer, getDefaultLayerName } from '@/js/leaflet/tiles.js'
 import '@/js/leaflet/leaflet-measure.css'
 import { createPopThermal, createPopGlide, thermalIcon, glideIcon, bestThermalIcon, bestGlideIcon, startIcon, endIcon, getLeagueColor } from '@/js/leaflet/map-utils.js'
+import {
+    TRACK_COLOR, scorePointLabel, scorePointTime, scoreLegLabel, scoreCircleOptions, scoreLineStyle
+} from '@/js/leaflet/track-style.js'
+import { TrackColorizer } from '@/js/leaflet/track-colorizer.js'
 
 const { $gettext } = useGettext()
 
@@ -21,8 +25,17 @@ const props = defineProps({
     fixes: {
         type: Array,
         default: null
+    },
+    // Smoothed vario (m/s) and speed (km/h) of the track points, for the track colouring
+    trackSeries: {
+        type: Object,
+        default: null
     }
 })
+
+// Track coloured by altitude, vario or speed, drawn over the hidden main track
+let colorizer = null
+let trackColored = false
 
 const emit = defineEmits(['map-ready', 'hover-point', 'track-clicked'])
 
@@ -48,7 +61,8 @@ const mainCanvas = L.canvas({ padding: 0.5 })
 
 // Visual Options
 const thermOptions = {
-    color: '#ff6600',
+    // Purple: the track itself is orange
+    color: '#7B1FA2',
     weight: 4,
     opacity: 1
 }
@@ -112,6 +126,9 @@ onMounted(async () => {
         resizeObserver.observe(mapElement)
     }
 
+    // The plain orange track stays the main geoLayer (clicks, bounds): the colorizer only draws colours
+    colorizer = new TrackColorizer(map, { $gettext, weight: 5, drawPlain: false })
+
     if (props.geoJson) {
         displayGeoJson(props.geoJson)
     }
@@ -141,7 +158,7 @@ function displayGeoJson(geoJson) {
     geoLayer = L.geoJSON(geoJson, {
         renderer: mainCanvas,
         style: {
-            color: '#0033ff',
+            color: TRACK_COLOR,
             weight: 5, // Default active weight
             opacity: 1,
             interactive: true
@@ -170,8 +187,22 @@ function displayGeoJson(geoJson) {
                 startMarker = L.marker([startPoint[1], startPoint[0]], { icon: startIcon }).addTo(map)
                 endMarker = L.marker([endPoint[1], endPoint[0]], { icon: endIcon }).addTo(map)
             }
+            if (colorizer) colorizer.setTrack(coords, trackFeature.properties?.coordTimes, props.trackSeries)
         }
     }
+}
+
+/**
+ * Colour the main track by altitude, vario or speed ('flight': plain orange track)
+ * @returns {Object|null} legend { low, mid, high } of a coloured mode
+ */
+function setTrackColoring(mode) {
+    if (!colorizer || !geoLayer) return null
+    const legend = colorizer.draw(mode)
+    trackColored = !!legend
+    // The plain track stays (for clicks and bounds) but is hidden under a coloured one
+    geoLayer.setStyle({ opacity: trackColored ? 0 : 1 })
+    return legend
 }
 
 function displayOtherTrack(geoJson) {
@@ -188,7 +219,8 @@ function displayOtherTrack(geoJson) {
     otherGeoLayer = L.geoJSON(geoJson, {
         renderer: mainCanvas,
         style: {
-            color: 'red',
+            // Blue: orange is the main track and red the scored course
+            color: '#0033ff',
             weight: 3,
             opacity: 0.8,
             interactive: true,
@@ -218,9 +250,10 @@ function displayOtherTrack(geoJson) {
 
 function setActiveTrackStyle(type) {
     if (geoLayer) {
-        geoLayer.setStyle({ 
-            weight: type === 'main' ? 5 : 3, 
-            opacity: type === 'main' ? 1 : 0.6 
+        geoLayer.setStyle({
+            weight: type === 'main' ? 5 : 3,
+            // Stays hidden while a coloured track is shown
+            opacity: trackColored ? 0 : (type === 'main' ? 1 : 0.6)
         })
         if (type === 'main') {
             geoLayer.bringToFront()
@@ -241,10 +274,11 @@ function setHoverPoint(lat, lon) {
     if (!map) return
 
     if (!hoverMarker) {
+        // Blue cursor: red is the scored course, orange the track
         hoverMarker = L.circleMarker([lat, lon], {
             renderer: mainCanvas,
-            color: 'red',
-            fillColor: '#f03',
+            color: '#0033ff',
+            fillColor: '#4d79ff',
             fillOpacity: 0.5,
             radius: 5
         }).addTo(map)
@@ -452,8 +486,15 @@ function displayVerification(checkResult, fixes) {
     updateVerificationTooltip(checkResult)
 }
 
-function displayScoringResult(geojson, league) {
+/**
+ * Draw a scored course (turnpoints, legs, closing line)
+ * @param {Object} geojson scoring GeoJSON from igc-scoring.js
+ * @param {string} league
+ * @param {Object} [options] { fit: zoom on the course (default true), offsetUTC: minutes, for local times }
+ */
+function displayScoringResult(geojson, league, options = {}) {
     if (!map) return
+    const fit = options.fit !== false
 
     // Remove existing score layer
     if (scoreLayer) {
@@ -466,57 +507,40 @@ function displayScoringResult(geojson, league) {
 
     if (!geojson) return
 
-    const leagueColor = getLeagueColor(league)
-    const drawingColor = leagueColor ? leagueColor.namedColor : 'orange'
-
+    // Same red course whatever the league, as on the logbook map
     scoreLayer = L.geoJSON(geojson, {
         renderer: mainCanvas,
-        style: function (feature) {
-            // For the track line (LineString), we use the league color
-            // For points (if any), we might just use default markers or similar style
-            return {
-                stroke: true,
-                color: drawingColor,
-                weight: 4,
-                opacity: 0.8
-            };
-        },
+        // Turnpoints as circles, smaller for the closing points
+        pointToLayer: (feature, latlng) => L.circleMarker(latlng, scoreCircleOptions(feature, mainCanvas)),
+        // Closing line of a triangle dashed
+        style: scoreLineStyle,
         onEachFeature: (feature, layer) => {
-            if (feature.properties && feature.properties.popupContent) {
-                if (feature.geometry && feature.geometry.type === 'Point') {
-                    layer.bindPopup(
-                        `<b>${league} :</b><br> ${feature.properties.popupContent}`
-                    );
-                } else if (feature.geometry && feature.geometry.type === 'LineString') {
-                    // We bind a tooltip for the main scoring path
-                    layer.bindTooltip(
-                        `<b>${league} :</b><br> ${feature.properties.popupContent}`,
-                        { permanent: true, direction: 'auto', className: 'score-tooltip' }
-                    );
-                    // Also bind a popup if user clicks
-                    layer.bindPopup(
-                        `<b>${league} :</b><br> ${feature.properties.popupContent}`
-                    );
-                }
+            const id = String(feature.properties?.id || '')
+            if (feature.geometry && feature.geometry.type === 'Point') {
+                // Turnpoint name and local time, on click
+                const time = scorePointTime(feature.properties.timestamp, options.offsetUTC)
+                layer.bindPopup(`<b>${scorePointLabel(id, $gettext)}</b>${time ? '<br>' + time : ''}`)
+            } else if (feature.geometry && feature.geometry.type === 'LineString') {
+                // Leg distance, on hover only
+                layer.bindTooltip(scoreLegLabel(feature.properties, $gettext), { sticky: true, className: 'score-tooltip' })
             }
         }
     }).addTo(map)
 
-    // Open popups/tooltips if needed, or just fit bounds
-    // Reference logfly65 opens popup for LineString
-    scoreLayer.eachLayer(layer => {
-        if (layer.feature && layer.feature.geometry && layer.feature.geometry.type === 'LineString') {
-            layer.openPopup();
-        }
-    });
-
     if (layerControl) {
-        layerControl.addOverlay(scoreLayer, `Score ${league}`)
+        // e.g. "Score XContest : Closed FAI Triangle 107.1 km 171.4 pts"
+        const km = (geojson.distance || 0) - (geojson.penalty || 0)
+        const detail = geojson.course
+            ? ` : ${geojson.course} ${km.toFixed(1)} km ${Number(geojson.score || 0).toFixed(1)} pts`
+            : ''
+        layerControl.addOverlay(scoreLayer, `Score ${league}${detail}`)
     }
 
-    const bounds = scoreLayer.getBounds()
-    if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [20, 20] })
+    if (fit) {
+        const bounds = scoreLayer.getBounds()
+        if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [20, 20] })
+        }
     }
 }
 
@@ -688,6 +712,7 @@ defineExpose({
     displayTakeOff,
     displayLanding,
     displayScoringResult,
+    setTrackColoring,
     displayHike,
     displayOtherTrack,
     setActiveTrackStyle,

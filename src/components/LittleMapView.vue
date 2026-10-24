@@ -9,6 +9,41 @@
         <span class="font-weight-bold text-grey-darken-3">{{ flightInfo.date }}</span>
         <span class="mx-2 text-grey-lighten-1">|</span>
         <span class="font-weight-bold text-primary">{{ flightInfo.duration }}</span>
+        <template v-if="trackCoords">
+          <span class="mx-2 text-grey-lighten-1">|</span>
+          <!-- Track colouring: plain, altitude, vario or speed -->
+          <v-menu location="top end">
+            <template v-slot:activator="{ props }">
+              <button v-bind="props" type="button" class="track-mode-btn d-flex align-center">
+                <span class="track-dot mr-2" :style="{ background: modeSwatch(trackMode) }"></span>
+                <span class="font-weight-bold">{{ trackModeLabel(trackMode) }}</span>
+                <v-icon size="18">mdi-menu-down</v-icon>
+              </button>
+            </template>
+            <v-list density="compact">
+              <v-list-item v-for="mode in TRACK_MODES" :key="mode" :active="mode === trackMode"
+                @click="setTrackMode(mode)">
+                <template v-slot:prepend>
+                  <span class="track-dot mr-3" :style="{ background: modeSwatch(mode) }"></span>
+                </template>
+                <v-list-item-title>{{ trackModeLabel(mode) }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+          <span v-if="trackLegend" class="ml-2 text-caption text-grey-darken-2 d-flex align-center">
+            {{ trackLegend.low }}
+            <span class="legend-bar mx-1" :style="{ background: gradientCss }">
+              <span v-if="trackLegend.mid" class="legend-mid">{{ trackLegend.mid }}</span>
+            </span>
+            {{ trackLegend.high }}
+          </span>
+        </template>
+        <template v-if="scoreText && scoreVisible">
+          <span class="mx-2 text-grey-lighten-1">|</span>
+          <span class="score-dot mr-2"></span>
+          <span class="font-weight-bold">{{ scoreText.title }}</span>
+          <span class="ml-1 text-grey-darken-2">· {{ scoreText.detail }}</span>
+        </template>
       </div>
       <div class="map-buttons">
         <v-tooltip :text="$gettext('Zoom in')" location="bottom">
@@ -46,6 +81,12 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { createBaseMaps, getDefaultLayerName, createKk7 } from '@/js/leaflet/tiles.js';
 import { startIcon, endIcon } from '@/js/leaflet/map-utils.js';
+import {
+  SCORE_COLOR, GRADIENT_CSS, TRACK_MODES as TRACK_MODE_LIST, readTrackMode, saveTrackMode,
+  trackModeLabel as trackModeLabelOf, trackModeSwatch,
+  scorePointLabel, scorePointTime, scoreLegLabel, scoreCircleOptions, scoreLineStyle
+} from '@/js/leaflet/track-style.js';
+import { TrackColorizer } from '@/js/leaflet/track-colorizer.js';
 
 // Import site type icons
 import windsockIconUrl from '@/assets/windsock22.png';
@@ -112,6 +153,16 @@ const props = defineProps({
   showSkyways: {
     type: Boolean,
     default: false
+  },
+  // Offset of the flight's local time (minutes), for the turnpoint times
+  offsetUTC: {
+    type: Number,
+    default: 0
+  },
+  // Smoothed vario (m/s) and speed (km/h) of the track points, for the track colouring
+  trackSeries: {
+    type: Object,
+    default: null
   }
 });
 
@@ -121,6 +172,9 @@ const mapContainer = ref(null);
 let map = null;
 let geoJsonLayer = null;
 let scoreLayer = null;
+// Scored course summary { title, detail } and whether its overlay is shown
+const scoreText = ref(null);
+const scoreVisible = ref(true);
 let startMarker = null;
 let endMarker = null;
 let resizeObserver = null;
@@ -144,6 +198,14 @@ onMounted(() => {
   if (props.showSkyways) {
     layerControl.addOverlay(createKk7(), 'Skyways kk7.ch');
   }
+
+  // IGC track, plain or coloured, below the scored course
+  colorizer = new TrackColorizer(map, { $gettext });
+
+  // The score summary of the badge follows the visibility of the score overlay
+  map.on('overlayadd overlayremove', (e) => {
+    if (e.layer === scoreLayer) scoreVisible.value = e.type === 'overlayadd';
+  });
 
   // Forcer un rafraîchissement après un court délai
   setTimeout(() => {
@@ -196,10 +258,7 @@ function displayGeoJson(geoJson) {
     map.removeLayer(geoJsonLayer);
   }
   // Supprimer la couche précédente du scoring si elle existe
-  if (scoreLayer) {
-    map.removeLayer(scoreLayer);
-    scoreLayer = null;
-  }
+  clearScoreLayer();
   // Supprimer les marqueurs précédents
   if (startMarker) {
     map.removeLayer(startMarker);
@@ -211,13 +270,10 @@ function displayGeoJson(geoJson) {
   }
 
   // Ajouter la nouvelle couche GeoJSON (trace du vol)
-  geoJsonLayer = L.geoJSON(geoJson, {
-    style: {
-      color: '#3388ff',
-      weight: 3,
-      opacity: 0.8
-    }
-  }).addTo(map);
+  const trackFeature = geoJson.features?.find(f => f.geometry?.type === 'LineString');
+  trackCoords.value = trackFeature ? trackFeature.geometry.coordinates : null;
+  trackTimes = trackFeature?.properties?.coordTimes || null;
+  drawTrack();
 
   // Ajouter les marqueurs de début et fin
   if (geoJson.features && geoJson.features.length > 0) {
@@ -243,47 +299,98 @@ function displayGeoJson(geoJson) {
   }, 50);
 }
 
+// Remove the scored course from the map, the layer control and the legend
+function clearScoreLayer() {
+  if (scoreLayer) {
+    map.removeLayer(scoreLayer);
+    if (layerControl) layerControl.removeLayer(scoreLayer);
+    scoreLayer = null;
+  }
+  scoreText.value = null;
+}
+
+// Track colouring: plain orange track, or coloured by altitude, vario or speed (shared with the full map)
+let colorizer = null;
+const trackCoords = ref(null);
+const trackMode = ref(readTrackMode());
+const trackLegend = ref(null);
+const gradientCss = GRADIENT_CSS;
+const TRACK_MODES = TRACK_MODE_LIST;
+
+function setTrackMode(mode) {
+  trackMode.value = mode;
+  saveTrackMode(mode);
+  drawTrack();
+}
+
+function trackModeLabel(mode) {
+  return trackModeLabelOf(mode, $gettext);
+}
+
+function modeSwatch(mode) {
+  return trackModeSwatch(mode);
+}
+
+/**
+ * (Re)draw the IGC track in the current colouring mode, below the scored course
+ */
+function drawTrack() {
+  if (!colorizer) return;
+  colorizer.setTrack(trackCoords.value, trackTimes, props.trackSeries);
+  trackLegend.value = colorizer.draw(trackMode.value);
+  geoJsonLayer = colorizer.layer;
+}
+
+let trackTimes = null;
+
 function displayScoreJson(scoreJson) {
 
   // Supprimer la couche précédente du scoring si elle existe
-  if (scoreLayer) {
-    map.removeLayer(scoreLayer);
-  }
+  clearScoreLayer();
 
   try {
     // Ajouter la nouvelle couche GeoJSON (résultat du scoring)
+    // Same look as the full map: turnpoints on click, leg distances on hover
     scoreLayer = L.geoJSON(scoreJson, {
-      pointToLayer: (feature, latlng) => {
-        return L.circleMarker(latlng, {
-          radius: 8,
-          fillColor: '#ff0000',
-          color: '#ffffff',
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 0.8
-        });
-      },
-      style: (feature) => {
-        if (feature.geometry.type === 'LineString') {
-          return {
-            color: '#ff0000',
-            weight: 3,
-            opacity: 0.8
-          };
-        }
-      },
+      pointToLayer: (feature, latlng) => L.circleMarker(latlng, scoreCircleOptions(feature)),
+      style: scoreLineStyle,
       onEachFeature: (feature, layer) => {
-        if (feature.properties && feature.properties.popupContent) {
-          layer.bindPopup(feature.properties.popupContent);
+        const id = String(feature.properties?.id || '');
+        if (feature.geometry.type === 'Point') {
+          const time = scorePointTime(feature.properties.timestamp, props.offsetUTC);
+          layer.bindPopup(`<b>${scorePointLabel(id, $gettext)}</b>${time ? '<br>' + time : ''}`);
+        } else if (feature.geometry.type === 'LineString') {
+          layer.bindTooltip(scoreLegLabel(feature.properties, $gettext), { sticky: true });
         }
       }
     }).addTo(map);
+
+    // Summary shown in the date/duration badge
+    scoreText.value = scoreSummary(scoreJson);
+    scoreVisible.value = true;
+    if (layerControl) layerControl.addOverlay(scoreLayer, `<span style="color:${SCORE_COLOR}">●</span> ${scoreText.value.title}`);
 
     // Adapter la vue pour afficher toute la trace et le scoring
     fitBoundsToAllLayers();
   } catch (error) {
     console.error('Erreur lors de l\'affichage du scoring:', error);
   }
+}
+
+// Course type, scored distance and points of a scoring result
+function scoreSummary(scoreJson) {
+  const titles = {
+    fai: $gettext('FAI triangle'),
+    tri: $gettext('Flat triangle'),
+    od: $gettext('Free distance')
+  };
+  // Scored distance: triangle distance minus the closing penalty, as XContest shows it
+  const km = (scoreJson.distance || 0) - (scoreJson.penalty || 0);
+  const pts = Number(scoreJson.score || 0);
+  return {
+    title: titles[scoreJson.code] || scoreJson.course || 'Score',
+    detail: `${km.toFixed(1)} km · ${pts.toFixed(1)} pts${scoreJson.league ? ' (' + scoreJson.league + ')' : ''}`
+  };
 }
 
 function fitBoundsToAllLayers() {
@@ -333,10 +440,8 @@ function displayTakeoffOnly(lat, lon, site, alt, siteType = 'D') {
     map.removeLayer(geoJsonLayer);
     geoJsonLayer = null;
   }
-  if (scoreLayer) {
-    map.removeLayer(scoreLayer);
-    scoreLayer = null;
-  }
+  clearScoreLayer();
+  trackCoords.value = null;
   if (startMarker) {
     map.removeLayer(startMarker);
   }
@@ -385,7 +490,8 @@ function displayHikeTrack(geoJson) {
 
   // Clear existing layers
   if (geoJsonLayer) { map.removeLayer(geoJsonLayer); geoJsonLayer = null; }
-  if (scoreLayer) { map.removeLayer(scoreLayer); scoreLayer = null; }
+  clearScoreLayer();
+  trackCoords.value = null;
   if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
   if (endMarker) { map.removeLayer(endMarker); endMarker = null; }
 
@@ -428,7 +534,8 @@ function displayHikePoints(latStart, lonStart, latEnd, lonEnd, name) {
 
   // Clear existing layers
   if (geoJsonLayer) { map.removeLayer(geoJsonLayer); geoJsonLayer = null; }
-  if (scoreLayer) { map.removeLayer(scoreLayer); scoreLayer = null; }
+  clearScoreLayer();
+  trackCoords.value = null;
   if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
   if (endMarker) { map.removeLayer(endMarker); endMarker = null; }
 
@@ -521,5 +628,50 @@ onBeforeUnmount(() => {
 
 .little-map-wrapper.no-radius {
   border-radius: 0;
+}
+
+/* Track colouring selector of the date/duration badge */
+.track-mode-btn {
+  /* The overlay lets clicks through to the map: re-enable them on the selector */
+  pointer-events: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.track-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.legend-bar {
+  position: relative;
+  display: inline-block;
+  width: 70px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* "0" in the middle of the vario scale */
+.legend-mid {
+  position: absolute;
+  left: 50%;
+  top: -14px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* Colour mark of the scored course in the date/duration badge (same as SCORE_COLOR) */
+.score-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #D50000;
 }
 </style>

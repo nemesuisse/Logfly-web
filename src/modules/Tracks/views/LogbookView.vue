@@ -193,7 +193,8 @@
              (controls reappear once the user selects a flight and the drawer closes) -->
         <div class="map-wrapper" :class="{ 'hide-map-controls': mobile && drawer }">
           <LittleMapView v-if="decodedTrack && decodedTrack.GeoJSON" ref="littleMapRef" :geoJson="decodedTrack.GeoJSON"
-            :scoreJson="scoreJson" :paddingLeft="$vuetify.display.mdAndUp ? 400 : 0" :flightInfo="currentFlightInfo"
+            :scoreJson="scoreJson" :offsetUTC="Number(decodedTrack?.info?.offsetUTC) || 0"
+            :trackSeries="decodedTrack ? { vz: decodedTrack.vz, speed: decodedTrack.speed } : null" :paddingLeft="$vuetify.display.mdAndUp ? 400 : 0" :flightInfo="currentFlightInfo"
             :showSkyways="true"
             @open-full-map="onOpenFullMap" @open-cesium="onOpenCesium" @open-analyze="onOpenAnalyze" />
           <LittleMapView v-else-if="noIgcFlight" ref="littleMapRef" :hideOverlay="true"
@@ -290,7 +291,7 @@ import ScoreDialog from '@/components/ScoreDialog.vue';
 import TagDialog from '@/components/TagDialog.vue';
 import LogbookPhoto from '@/components/LogbookPhoto.vue';
 import HikePickerDialog from '@/components/HikePickerDialog.vue';
-import { igcScoring } from '@/js/igc/igc-scoring';
+import { igcScoring, autoScoreFlight, getDisplayLeague } from '@/js/igc/igc-scoring';
 import { igcToGpx } from '@/js/igc/igc-to-gpx.js';
 import { useDatabaseStore } from '@/stores/database';
 import { igcDecoding } from '@/js/igc/igc-decoder.js';
@@ -789,6 +790,21 @@ function scoreFlightFn(args) {
 
 function onScoreResult({ league, result }) {
   scoreJson.value = result;
+}
+
+// Best course of the displayed flight, drawn over the track (league from the settings)
+let autoScoreFlightId = null;
+
+async function autoScoreDisplayedFlight(flightId, fixes) {
+  autoScoreFlightId = flightId;
+  const geojson = await autoScoreFlight({
+    fixes,
+    league: getDisplayLeague(),
+    cacheKey: flightId,
+    // Abandon when another flight is selected
+    shouldStop: () => autoScoreFlightId !== flightId
+  });
+  if (geojson && autoScoreFlightId === flightId) scoreJson.value = geojson;
 }
 
 function openFullMap(item) {
@@ -1317,7 +1333,9 @@ async function readIgcFromDb(flightId) {
     if (decodedIgc.success && decodedIgc.data.fixes && decodedIgc.data.fixes.length > 0) {
       noIgcFlight.value = null; // Reset no-IGC state
       noTrackFlightDetails.value = null; // Reset no-track flight details
+      scoreJson.value = null;
       decodedTrack.value = decodedIgc.data
+      autoScoreDisplayedFlight(flightId, decodedIgc.data.fixes);
       const analyzeIgc = await IgcAnalyze(decodedIgc.data.fixes);
       if (!analyzeIgc.success) {
         console.log(analyzeIgc.message)
@@ -1360,6 +1378,7 @@ async function mapWithoutIgc(flightId) {
     decodedTrack.value = null;
     dataFlight.value = null;
     scoreJson.value = null;
+    autoScoreFlightId = null;
 
     noIgcFlight.value = { lat, lon, site, alt, flightId };
 
