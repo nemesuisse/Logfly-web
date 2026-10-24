@@ -23,7 +23,13 @@
     <div class="panels-grid">
       <v-card v-for="panel in panels" :key="panel.key" class="record-panel" elevation="2">
         <div class="panel-title" :style="{ background: `linear-gradient(135deg, ${panel.colors[0]} 0%, ${panel.colors[1]} 100%)` }">
-          <v-icon class="panel-icon" size="72" color="white">{{ panel.icon }}</v-icon>
+          <svg v-if="panel.course" class="panel-icon" width="72" height="72" viewBox="0 0 24 24" fill="white"
+            stroke="white" stroke-width="1.4" stroke-linejoin="round">
+            <polyline v-if="panel.course === 'od'" :points="iconPoints(panel.course)" fill="none" />
+            <polygon v-else :points="iconPoints(panel.course)" fill="none" />
+            <circle v-for="(p, i) in courseIcons[panel.course]" :key="i" :cx="p[0]" :cy="p[1]" r="2.2" stroke="none" />
+          </svg>
+          <v-icon v-else class="panel-icon" size="72" color="white">{{ panel.icon }}</v-icon>
           <span>{{ panel.title }}</span>
           <v-menu v-if="panel.key === 'speed'">
             <template v-slot:activator="{ props }">
@@ -57,7 +63,10 @@
           </tbody>
         </v-table>
         <div v-else class="panel-empty">
-          {{ panel.needsTracks && computing ? $gettext('Analyzing tracks') + '...' : $gettext('No data') }}
+          <template v-if="panel.key === 'speed' && !computing">{{ $gettext('No matching flight') }}</template>
+          <template v-else>
+            {{ panel.needsTracks && computing ? $gettext('Analyzing tracks') + '...' : $gettext('No data') }}
+          </template>
         </div>
       </v-card>
     </div>
@@ -116,11 +125,22 @@ const courseLabels = computed(() => ({
   fai: $gettext('FAI triangle')
 }));
 
+// Turnpoints of the course icons (24x24 viewBox)
+const courseIcons = {
+  fai: [[12, 3.5], [3, 19.5], [21, 19.5]],
+  tri: [[14, 6.5], [2.5, 18.5], [21.5, 16.5]],
+  od: [[3, 19], [8, 6], [15, 15], [21, 4]]
+};
+
+function iconPoints(course) {
+  return courseIcons[course].map(p => p.join(',')).join(' ');
+}
+
 const panels = computed(() => [
   { key: 'best', title: $gettext('Best scores'), icon: 'mdi-trophy-outline', colors: ['#FF9800', '#EF6C00'], rows: records.value.best, needsTracks: true },
-  { key: 'fai', title: $gettext('Best FAI triangles'), icon: 'mdi-triangle-outline', colors: ['#f44336', '#c62828'], rows: records.value.fai, needsTracks: true },
-  { key: 'tri', title: $gettext('Best flat triangles'), icon: 'mdi-vector-triangle', colors: ['#AB47BC', '#7B1FA2'], rows: records.value.tri, needsTracks: true },
-  { key: 'od', title: $gettext('Best free distances'), icon: 'mdi-vector-polyline', colors: ['#26A69A', '#00796B'], rows: records.value.od, needsTracks: true },
+  { key: 'fai', title: $gettext('Best FAI triangles'), icon: 'mdi-triangle-outline', course: 'fai', colors: ['#f44336', '#c62828'], rows: records.value.fai, needsTracks: true },
+  { key: 'tri', title: $gettext('Best flat triangles'), icon: 'mdi-vector-triangle', course: 'tri', colors: ['#AB47BC', '#7B1FA2'], rows: records.value.tri, needsTracks: true },
+  { key: 'od', title: $gettext('Best free distances'), icon: 'mdi-vector-polyline', course: 'od', colors: ['#26A69A', '#00796B'], rows: records.value.od, needsTracks: true },
   { key: 'longest', title: $gettext('Longest flights'), icon: 'mdi-timer-outline', colors: ['#2196F3', '#1565C0'], rows: records.value.longest },
   { key: 'speed', title: $gettext('Average speed'), icon: 'mdi-speedometer', colors: ['#78909C', '#455A64'], rows: records.value.speed, needsTracks: true },
   { key: 'altitude', title: $gettext('Altitude records'), icon: 'mdi-image-filter-hdr', colors: ['#4CAF50', '#2E7D32'], rows: records.value.altitude, needsTracks: true },
