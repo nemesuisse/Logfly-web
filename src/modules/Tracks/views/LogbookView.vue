@@ -194,6 +194,7 @@
         <div class="map-wrapper" :class="{ 'hide-map-controls': mobile && drawer }">
           <LittleMapView v-if="decodedTrack && decodedTrack.GeoJSON" ref="littleMapRef" :geoJson="decodedTrack.GeoJSON"
             :scoreJson="scoreJson" :paddingLeft="$vuetify.display.mdAndUp ? 400 : 0" :flightInfo="currentFlightInfo"
+            :showSkyways="true" :geoThermals="dataFlight?.anaTrack?.geoThermals"
             @open-full-map="onOpenFullMap" @open-cesium="onOpenCesium" @open-analyze="onOpenAnalyze" />
           <LittleMapView v-else-if="noIgcFlight" ref="littleMapRef" :hideOverlay="true"
             :flightInfo="currentFlightInfo" />
