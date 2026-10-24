@@ -62,12 +62,12 @@
                 <template v-slot:headers="{ columns, isSorted, getSortIcon, toggleSort }">
                     <tr>
                         <th v-for="column in columns" :key="column.key" class="table-header"
-                            :class="{ 'sortable-header': column.sortable }"
+                            :class="{ 'sortable-header': column.sortable, 'text-right': column.align === 'end' }"
                             @click="column.sortable && toggleSort(column)">
                             {{ column.title }}
                             <v-icon v-if="column.sortable" size="small"
                                 :class="isSorted(column) ? 'sort-icon-active' : 'sort-icon-idle'">
-                                {{ isSorted(column) ? getSortIcon(column) : 'mdi-arrow-up' }}
+                                {{ isSorted(column) ? getSortIcon(column) : 'mdi-swap-vertical' }}
                             </v-icon>
                         </th>
                     </tr>
@@ -77,6 +77,7 @@
                         <td class="col-date">{{ formatDate(item.M_Date) }}</td>
                         <td class="col-engin">{{ item.M_Engin }}</td>
                         <td class="col-event">{{ item.M_Event }}</td>
+                        <td class="col-price">{{ formatPrice(item.M_Price) }}</td>
                         <td class="col-comment">{{ item.M_Comment }}</td>
                         <td class="col-action">
                             <v-btn icon size="small" variant="text" color="warning" @click="onEditRecord(item)">
@@ -237,10 +238,11 @@ const contentStatusMessage = computed(() => {
 });
 
 const headers = computed(() => [
-    { title: $gettext('Date'), key: 'M_Date', sortable: true, width: '15%' },
-    { title: $gettext('Equipment'), key: 'M_Engin', sortable: true, width: '20%' },
-    { title: $gettext('Operation'), key: 'M_Event', sortable: true, width: '20%' },
-    { title: $gettext('Comment'), key: 'M_Comment', sortable: true, width: '35%' },
+    { title: $gettext('Date'), key: 'M_Date', sortable: true, width: '13%' },
+    { title: $gettext('Equipment'), key: 'M_Engin', sortable: true, width: '18%' },
+    { title: $gettext('Operation'), key: 'M_Event', sortable: true, width: '18%' },
+    { title: $gettext('Price'), key: 'M_Price', sortable: true, width: '9%', align: 'end', sort: comparePrices },
+    { title: $gettext('Comment'), key: 'M_Comment', sortable: true, width: '32%' },
     { title: '', key: 'edit', sortable: false, width: '5%' },
     { title: '', key: 'delete', sortable: false, width: '5%' }
 ]);
@@ -391,6 +393,30 @@ function getGliderStats(gliderName) {
     }
 
     return { flights: 0, hours: 0, min: '00' };
+}
+
+/**
+ * M_Price is stored as text: parse it so the column sorts numerically, empty values first
+ */
+function parsePrice(value) {
+    if (value === null || value === undefined || String(value).trim() === '') return null;
+    const num = Number(String(value).replace(',', '.'));
+    return isNaN(num) ? null : num;
+}
+
+function comparePrices(a, b) {
+    const na = parsePrice(a);
+    const nb = parsePrice(b);
+    if (na === nb) return 0;
+    if (na === null) return -1;
+    if (nb === null) return 1;
+    return na - nb;
+}
+
+function formatPrice(value) {
+    const num = parsePrice(value);
+    if (num === null) return value || '';
+    return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 /**
@@ -607,11 +633,11 @@ function onValidate() {
 }
 
 .sort-icon-idle {
-    opacity: 0;
+    opacity: 0.35;
 }
 
 .sortable-header:hover .sort-icon-idle {
-    opacity: 0.4;
+    opacity: 0.7;
 }
 
 .table-section {
@@ -637,19 +663,25 @@ function onValidate() {
 }
 
 .col-date {
-    width: 15%;
+    width: 13%;
 }
 
 .col-engin {
-    width: 20%;
+    width: 18%;
 }
 
 .col-event {
-    width: 20%;
+    width: 18%;
+}
+
+.col-price {
+    width: 9%;
+    text-align: right;
+    padding-right: 24px !important;
 }
 
 .col-comment {
-    width: 35%;
+    width: 32%;
 }
 
 .col-action {
