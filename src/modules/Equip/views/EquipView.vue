@@ -23,21 +23,55 @@
                         <v-icon start>mdi-plus</v-icon>
                         {{ $gettext('Add') }}
                     </v-btn>
-                    <v-text-field v-model="search" :label="$gettext('Search')" prepend-inner-icon="mdi-magnify"
-                        single-line hide-details clearable density="compact" variant="outlined"
-                        class="search-field"></v-text-field>
+                </v-card-text>
+            </v-card>
+        </div>
+
+        <!-- Section 1b: Filters (only if records exist) -->
+        <div v-if="equipRecords.length > 0" class="filter-section">
+            <v-card elevation="1">
+                <v-card-text class="d-flex align-center flex-wrap gap-3">
+                    <v-text-field v-model="filters.dateFrom" :label="$gettext('Start date')" type="date"
+                        density="compact" variant="outlined" hide-details clearable
+                        class="filter-date"></v-text-field>
+                    <v-text-field v-model="filters.dateTo" :label="$gettext('End date')" type="date"
+                        density="compact" variant="outlined" hide-details clearable
+                        class="filter-date"></v-text-field>
+                    <v-autocomplete v-model="filters.engin" :items="enginOptions" :label="$gettext('Equipment')"
+                        density="compact" variant="outlined" hide-details clearable
+                        class="filter-select"></v-autocomplete>
+                    <v-autocomplete v-model="filters.event" :items="eventOptions" :label="$gettext('Operation')"
+                        density="compact" variant="outlined" hide-details clearable
+                        class="filter-select"></v-autocomplete>
+                    <v-text-field v-model="filters.comment" :label="$gettext('Comment')"
+                        prepend-inner-icon="mdi-magnify" density="compact" variant="outlined" hide-details
+                        clearable class="filter-comment"></v-text-field>
+                    <v-btn variant="tonal" :disabled="!hasActiveFilter" @click="resetFilters">
+                        <v-icon start>mdi-filter-remove</v-icon>
+                        {{ $gettext('Reset') }}
+                    </v-btn>
+                    <span class="info-text">{{ filteredRecords.length }} / {{ equipRecords.length }}</span>
                 </v-card-text>
             </v-card>
         </div>
 
         <!-- Section 2: Table (only if records exist) -->
         <div v-if="equipRecords.length > 0" class="table-section">
-            <v-data-table :headers="headers" :items="filteredRecords" :search="search" item-value="M_ID"
-                density="compact" class="equip-table" :items-per-page="-1">
-                <template v-slot:headers="{ columns }">
+            <v-data-table v-model:sort-by="sortBy" :headers="headers" :items="filteredRecords" item-value="M_ID"
+                density="compact" class="equip-table" :items-per-page="-1" must-sort>
+                <template v-slot:headers="{ columns, isSorted, getSortIcon, toggleSort }">
                     <tr>
-                        <th v-for="column in columns" :key="column.key" class="table-header">
+                        <th v-for="column in columns" :key="column.key" class="table-header"
+                            :class="{ 'sortable-header': column.sortable, 'text-right': column.align === 'end' }"
+                            @click="column.sortable && toggleSort(column)">
                             {{ column.title }}
+                            <v-icon v-if="column.sortable" size="small"
+                                :class="isSorted(column) ? 'sort-icon-active' : 'sort-icon-idle'">
+                                {{ isSorted(column) ? getSortIcon(column) : 'mdi-swap-vertical' }}
+                            </v-icon>
+                            <v-tooltip v-if="column.key === 'M_Price'" activator="parent" location="top">
+                                {{ $gettext('Total') }} : {{ formatPrice(filteredPriceTotal) }}
+                            </v-tooltip>
                         </th>
                     </tr>
                 </template>
@@ -46,6 +80,7 @@
                         <td class="col-date">{{ formatDate(item.M_Date) }}</td>
                         <td class="col-engin">{{ item.M_Engin }}</td>
                         <td class="col-event">{{ item.M_Event }}</td>
+                        <td class="col-price">{{ formatPrice(item.M_Price) }}</td>
                         <td class="col-comment">{{ item.M_Comment }}</td>
                         <td class="col-action">
                             <v-btn icon size="small" variant="text" color="warning" @click="onEditRecord(item)">
@@ -162,7 +197,14 @@ const emit = defineEmits(['dbUpdated']);
 
 // State
 const equipRecords = ref([]);
-const search = ref('');
+const sortBy = ref([{ key: 'M_Date', order: 'desc' }]);
+const filters = reactive({
+    dateFrom: '',
+    dateTo: '',
+    engin: null,
+    event: null,
+    comment: ''
+});
 const snackbar = ref(false);
 const snackbarMessage = ref('');
 
@@ -199,23 +241,56 @@ const contentStatusMessage = computed(() => {
 });
 
 const headers = computed(() => [
-    { title: $gettext('Date'), key: 'M_Date', sortable: true, width: '15%' },
-    { title: $gettext('Equipment'), key: 'M_Engin', sortable: true, width: '20%' },
-    { title: $gettext('Operation'), key: 'M_Event', sortable: true, width: '20%' },
-    { title: $gettext('Comment'), key: 'M_Comment', sortable: false, width: '35%' },
+    { title: $gettext('Date'), key: 'M_Date', sortable: true, width: '13%' },
+    { title: $gettext('Equipment'), key: 'M_Engin', sortable: true, width: '18%' },
+    { title: $gettext('Operation'), key: 'M_Event', sortable: true, width: '18%' },
+    { title: $gettext('Price'), key: 'M_Price', sortable: true, width: '9%', align: 'end', sort: comparePrices },
+    { title: $gettext('Comment'), key: 'M_Comment', sortable: true, width: '32%' },
     { title: '', key: 'edit', sortable: false, width: '5%' },
     { title: '', key: 'delete', sortable: false, width: '5%' }
 ]);
 
+// Filter choices are built from the values already stored in the Equip table
+function distinctValues(key) {
+    const values = new Set();
+    equipRecords.value.forEach(rec => {
+        if (rec[key] && String(rec[key]).trim() !== '') values.add(rec[key]);
+    });
+    return [...values].sort((a, b) => String(a).localeCompare(String(b)));
+}
+
+const enginOptions = computed(() => distinctValues('M_Engin'));
+const eventOptions = computed(() => distinctValues('M_Event'));
+
+const hasActiveFilter = computed(() =>
+    !!(filters.dateFrom || filters.dateTo || filters.engin || filters.event || filters.comment)
+);
+
 const filteredRecords = computed(() => {
-    if (!search.value) return equipRecords.value;
-    const searchLower = search.value.toLowerCase();
+    const commentLower = filters.comment ? filters.comment.toLowerCase() : '';
     return equipRecords.value.filter(rec => {
-        return (rec.M_Engin && rec.M_Engin.toLowerCase().includes(searchLower)) ||
-            (rec.M_Event && rec.M_Event.toLowerCase().includes(searchLower)) ||
-            (rec.M_Comment && rec.M_Comment.toLowerCase().includes(searchLower));
+        // M_Date is stored as 'YYYY-MM-DD HH:MM:SS', so the first 10 chars compare as strings
+        const day = rec.M_Date ? String(rec.M_Date).substring(0, 10) : '';
+        if (filters.dateFrom && day < filters.dateFrom) return false;
+        if (filters.dateTo && day > filters.dateTo) return false;
+        if (filters.engin && rec.M_Engin !== filters.engin) return false;
+        if (filters.event && rec.M_Event !== filters.event) return false;
+        if (commentLower && !(rec.M_Comment && String(rec.M_Comment).toLowerCase().includes(commentLower))) return false;
+        return true;
     });
 });
+
+const filteredPriceTotal = computed(() =>
+    filteredRecords.value.reduce((sum, rec) => sum + (parsePrice(rec.M_Price) ?? 0), 0)
+);
+
+function resetFilters() {
+    filters.dateFrom = '';
+    filters.dateTo = '';
+    filters.engin = null;
+    filters.event = null;
+    filters.comment = '';
+}
 
 
 
@@ -325,6 +400,30 @@ function getGliderStats(gliderName) {
     }
 
     return { flights: 0, hours: 0, min: '00' };
+}
+
+/**
+ * M_Price is stored as text: parse it so the column sorts numerically, empty values first
+ */
+function parsePrice(value) {
+    if (value === null || value === undefined || String(value).trim() === '') return null;
+    const num = Number(String(value).replace(',', '.'));
+    return isNaN(num) ? null : num;
+}
+
+function comparePrices(a, b) {
+    const na = parsePrice(a);
+    const nb = parsePrice(b);
+    if (na === nb) return 0;
+    if (na === null) return -1;
+    if (nb === null) return 1;
+    return na - nb;
+}
+
+function formatPrice(value) {
+    const num = parsePrice(value);
+    if (num === null) return value || '';
+    return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 /**
@@ -516,8 +615,36 @@ function onValidate() {
     font-size: 0.9rem;
 }
 
-.search-field {
-    max-width: 250px;
+.filter-section {
+    flex-shrink: 0;
+}
+
+.filter-date {
+    max-width: 180px;
+}
+
+.filter-select {
+    min-width: 180px;
+    max-width: 240px;
+}
+
+.filter-comment {
+    min-width: 200px;
+    max-width: 300px;
+}
+
+.sortable-header {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.sort-icon-idle {
+    opacity: 0.35;
+}
+
+.sortable-header:hover .sort-icon-idle {
+    opacity: 0.7;
 }
 
 .table-section {
@@ -543,19 +670,25 @@ function onValidate() {
 }
 
 .col-date {
-    width: 15%;
+    width: 13%;
 }
 
 .col-engin {
-    width: 20%;
+    width: 18%;
 }
 
 .col-event {
-    width: 20%;
+    width: 18%;
+}
+
+.col-price {
+    width: 9%;
+    text-align: right;
+    padding-right: 24px !important;
 }
 
 .col-comment {
-    width: 35%;
+    width: 32%;
 }
 
 .col-action {
