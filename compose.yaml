@@ -1,0 +1,11 @@
+# Raspberry Pi stack: clone this repo to /srv/stacks/logfly, then
+#   docker compose up -d --build
+# and link caddy/logfly.caddy into /srv/stacks/proxy/sites/
+services:
+  logfly:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    container_name: logfly
+    network_mode: host
+    restart: unless-stopped
