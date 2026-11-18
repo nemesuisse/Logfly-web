@@ -1,0 +1,34 @@
+# Inner server of the logfly container (network_mode: host).
+# The shared proxy on the Pi terminates HTTPS for logfly.lan and forwards here.
+{
+	# The shared proxy already uses the admin port 2019 on the host
+	admin off
+	auto_https off
+}
+
+:8770 {
+	bind 127.0.0.1
+	root * /srv
+	encode gzip
+
+	# Same proxies as vite.config.js (dev) and public/_redirects (Netlify)
+	handle_path /api-paragliding/* {
+		reverse_proxy https://www.paraglidingearth.com {
+			header_up Host {upstream_hostport}
+		}
+	}
+	handle_path /api-openair/* {
+		reverse_proxy http://pascal.bazile.free.fr {
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	# Always revalidate the entry files so a new build reaches the PWA
+	@entry path / /index.html /sw.js /manifest.webmanifest
+	header @entry Cache-Control "no-cache"
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
